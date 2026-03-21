@@ -162,6 +162,12 @@
         // 【】で囲まれた見出しを太字表示
         s = s.replace(/【(.+?)】/g, '<strong>【$1】</strong>');
 
+        // URLを自動リンク化（https://... や http://...）
+        s = s.replace(/(https?:\/\/[^\s<>&「」）)】]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:var(--myz-primary);word-break:break-all;">$1</a>');
+
+        // メールアドレスを自動リンク化
+        s = s.replace(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color:var(--myz-primary);">$1</a>');
+
         // 改行を適切にHTMLに変換
         s = s.replace(/\n\n+/g, '<br><br>');
         s = s.replace(/\n/g, '<br>');

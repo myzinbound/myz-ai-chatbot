@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.0.0');
+define('MYZ_CHATBOT_VERSION', '5.1.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 
