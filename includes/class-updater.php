@@ -20,10 +20,8 @@ class MYZ_Chatbot_Updater {
     public function __construct() {
         $this->slug = 'myz-ai-chatbot';
         $this->plugin_file = 'myz-ai-chatbot/myz-ai-chatbot.php';
-        $this->github_repo = get_option('myz_chatbot_github_repo', '');
+        $this->github_repo = 'myzinbound/myz-ai-chatbot';
         $this->current_version = MYZ_CHATBOT_VERSION;
-
-        if (empty($this->github_repo)) return;
 
         add_filter('pre_set_site_transient_update_plugins', [$this, 'check_update']);
         add_filter('plugins_api', [$this, 'plugin_info'], 20, 3);

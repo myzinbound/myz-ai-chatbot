@@ -9,13 +9,15 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.1.0');
+define('MYZ_CHATBOT_VERSION', '5.10.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
+define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
 
 require_once MYZ_CHATBOT_PATH . 'includes/site-knowledge.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-chatbot-api.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-scraper.php';
+require_once MYZ_CHATBOT_PATH . 'includes/class-file-parser.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-updater.php';
 
 class MYZ_AI_Chatbot {
@@ -49,6 +51,10 @@ class MYZ_AI_Chatbot {
         // AJAX: 手動スクレイピング
         add_action('wp_ajax_myz_scrape_now', [$this, 'ajax_scrape_now']);
 
+        // AJAX: ファイルアップロード/削除
+        add_action('wp_ajax_myz_upload_knowledge_file', [$this, 'ajax_upload_knowledge_file']);
+        add_action('wp_ajax_myz_delete_knowledge_file', [$this, 'ajax_delete_knowledge_file']);
+
         // AJAX: 更新チェック
         add_action('wp_ajax_myz_check_update', [$this, 'ajax_check_update']);
 
@@ -58,6 +64,11 @@ class MYZ_AI_Chatbot {
 
         // GitHub自動更新
         new MYZ_Chatbot_Updater();
+
+        // スタンドアロンページ
+        add_action('template_redirect', [$this, 'render_standalone_page']);
+        add_action('init', [$this, 'add_rewrite_rules']);
+        add_filter('query_vars', [$this, 'add_query_vars']);
 
         register_activation_hook(__FILE__, [$this, 'on_activate']);
         register_deactivation_hook(__FILE__, [$this, 'on_deactivate']);
@@ -73,6 +84,9 @@ class MYZ_AI_Chatbot {
             update_option('myz_chatbot_scrape_frequency', 'weekly');
         }
         $this->schedule_cron();
+        // リライトルールをフラッシュ
+        $this->add_rewrite_rules();
+        flush_rewrite_rules();
     }
 
     /**
@@ -142,6 +156,9 @@ class MYZ_AI_Chatbot {
             $wpdb->query("CREATE TABLE `$table2` (
                 `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
                 `url` varchar(500) NOT NULL,
+                `source_type` varchar(10) NOT NULL DEFAULT 'url',
+                `filename` varchar(255) NOT NULL DEFAULT '',
+                `file_size` bigint(20) NOT NULL DEFAULT 0,
                 `content` longtext NOT NULL,
                 `updated_at` datetime DEFAULT NULL,
                 PRIMARY KEY (`id`),
@@ -165,6 +182,16 @@ class MYZ_AI_Chatbot {
 
         if (!$t1_exists || !$t2_exists) {
             $this->create_tables();
+        }
+
+        // ファイル学習用カラムを追加（既存テーブルのマイグレーション）
+        if ($t2_exists) {
+            $has_source = $wpdb->get_var("SHOW COLUMNS FROM `$table2` LIKE 'source_type'");
+            if (empty($has_source)) {
+                $wpdb->query("ALTER TABLE `$table2` ADD COLUMN `source_type` VARCHAR(10) NOT NULL DEFAULT 'url' AFTER `url`");
+                $wpdb->query("ALTER TABLE `$table2` ADD COLUMN `filename` VARCHAR(255) NOT NULL DEFAULT '' AFTER `source_type`");
+                $wpdb->query("ALTER TABLE `$table2` ADD COLUMN `file_size` BIGINT NOT NULL DEFAULT 0 AFTER `filename`");
+            }
         }
     }
 
@@ -210,10 +237,23 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_header_text', ['default' => 'AIに質問']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_header_icon', ['default' => 'chat']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_primary_color', ['default' => '#159BBE']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_text_color', ['default' => '#ffffff']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_send_icon', ['default' => 'paper-plane']);
-        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message', ['default' => 'こんにちは！マイズインバウンドのAIアシスタントです。サービス内容や料金など、お気軽にご質問ください。']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message', ['default' => "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else."]);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_standalone_slug', [
+            'default' => 'chatbot',
+            'sanitize_callback' => function($val) {
+                $val = sanitize_title($val);
+                // スラグ変更時にリライトルールをフラッシュ
+                flush_rewrite_rules();
+                return $val;
+            },
+        ]);
         register_setting('myz_chatbot_settings', 'myz_chatbot_toggle_size', ['default' => 'medium']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_toggle_radius', ['default' => '50']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_font_family', ['default' => 'system']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_font_weight', ['default' => '600']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_font_size', ['default' => '15']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_position', ['default' => 'left']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_github_repo', ['default' => '']);
     }
@@ -281,6 +321,9 @@ class MYZ_AI_Chatbot {
         $result2 = $wpdb->query("CREATE TABLE IF NOT EXISTS `$table2` (
             `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             `url` varchar(500) NOT NULL,
+            `source_type` varchar(10) NOT NULL DEFAULT 'url',
+            `filename` varchar(255) NOT NULL DEFAULT '',
+            `file_size` bigint(20) NOT NULL DEFAULT 0,
             `content` longtext NOT NULL,
             `updated_at` datetime DEFAULT NULL,
             PRIMARY KEY (`id`),
@@ -337,6 +380,121 @@ class MYZ_AI_Chatbot {
     }
 
     /**
+     * 学習用ファイルのアップロードディレクトリを取得（必要なら作成）
+     */
+    public static function get_upload_dir() {
+        $wp_upload = wp_upload_dir();
+        $dir = trailingslashit($wp_upload['basedir']) . 'myz-chatbot';
+        if (!file_exists($dir)) {
+            wp_mkdir_p($dir);
+            // 直接アクセス禁止
+            @file_put_contents($dir . '/.htaccess', "Order Deny,Allow\nDeny from all\n");
+            @file_put_contents($dir . '/index.php', "<?php // Silence is golden.\n");
+        }
+        return $dir;
+    }
+
+    /**
+     * 学習ファイル アップロード AJAX
+     */
+    public function ajax_upload_knowledge_file() {
+        check_ajax_referer('myz_file_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => '権限がありません。']);
+        }
+        if (empty($_FILES['file']) || !isset($_FILES['file']['tmp_name'])) {
+            wp_send_json_error(['message' => 'ファイルが選択されていません。']);
+        }
+        $file = $_FILES['file'];
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            wp_send_json_error(['message' => 'アップロードエラー（コード: ' . $file['error'] . '）']);
+        }
+        if ($file['size'] > MYZ_CHATBOT_MAX_UPLOAD_SIZE) {
+            wp_send_json_error(['message' => 'ファイルサイズが上限（' . round(MYZ_CHATBOT_MAX_UPLOAD_SIZE / 1024 / 1024) . 'MB）を超えています。']);
+        }
+
+        $original_name = sanitize_file_name($file['name']);
+        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        $allowed_exts = ['pdf', 'xlsx', 'docx', 'csv', 'txt', 'md', 'markdown'];
+        if (!in_array($ext, $allowed_exts, true)) {
+            wp_send_json_error(['message' => '対応していないファイル形式です。対応: PDF / Excel(.xlsx) / Word(.docx) / CSV / TXT / Markdown']);
+        }
+
+        // 保存先パスを生成（ハッシュ化して直リンクを推測不能に）
+        $upload_dir = self::get_upload_dir();
+        $unique = wp_generate_password(12, false, false);
+        $stored_basename = $unique . '-' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $original_name);
+        $stored_path = $upload_dir . '/' . $stored_basename;
+
+        if (!@move_uploaded_file($file['tmp_name'], $stored_path)) {
+            wp_send_json_error(['message' => 'ファイルの保存に失敗しました。']);
+        }
+
+        // パース
+        $parsed = MYZ_Chatbot_File_Parser::parse($stored_path, $original_name);
+        if (isset($parsed['error'])) {
+            @unlink($stored_path);
+            wp_send_json_error(['message' => $parsed['error']]);
+        }
+        $text = $parsed['text'];
+
+        // DB保存
+        global $wpdb;
+        $table = $wpdb->prefix . 'myz_knowledge';
+        $url_key = 'file://' . $stored_basename;
+        $insert = $wpdb->insert($table, [
+            'url'         => $url_key,
+            'source_type' => 'file',
+            'filename'    => $original_name,
+            'file_size'   => (int) $file['size'],
+            'content'     => $text,
+            'updated_at'  => current_time('mysql'),
+        ], ['%s', '%s', '%s', '%d', '%s', '%s']);
+
+        if ($insert === false) {
+            @unlink($stored_path);
+            wp_send_json_error(['message' => 'DB保存に失敗: ' . $wpdb->last_error]);
+        }
+
+        wp_send_json_success([
+            'id'        => $wpdb->insert_id,
+            'filename'  => $original_name,
+            'chars'     => mb_strlen($text),
+            'size'      => (int) $file['size'],
+            'truncated' => !empty($parsed['truncated']),
+            'updated'   => current_time('Y/m/d H:i'),
+        ]);
+    }
+
+    /**
+     * 学習ファイル 削除 AJAX
+     */
+    public function ajax_delete_knowledge_file() {
+        check_ajax_referer('myz_file_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => '権限がありません。']);
+        }
+        $id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        if ($id <= 0) {
+            wp_send_json_error(['message' => 'IDが不正です。']);
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'myz_knowledge';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT url, source_type FROM $table WHERE id = %d", $id));
+        if (!$row) wp_send_json_error(['message' => '対象が見つかりません。']);
+
+        if ($row->source_type === 'file' && strpos($row->url, 'file://') === 0) {
+            $basename = substr($row->url, 7);
+            // パストラバーサル防止
+            $basename = basename($basename);
+            $path = self::get_upload_dir() . '/' . $basename;
+            if (file_exists($path)) @unlink($path);
+        }
+        $wpdb->delete($table, ['id' => $id], ['%d']);
+        wp_send_json_success(['id' => $id]);
+    }
+
+    /**
      * 設定ページ
      */
     public function render_settings_page() {
@@ -351,6 +509,9 @@ class MYZ_AI_Chatbot {
         // ナレッジDB状況
         global $wpdb;
         $knowledge_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}myz_knowledge");
+        $url_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}myz_knowledge WHERE source_type = 'url' OR source_type = ''");
+        $file_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}myz_knowledge WHERE source_type = 'file'");
+        $file_rows = $wpdb->get_results("SELECT id, filename, file_size, updated_at, CHAR_LENGTH(content) AS chars FROM {$wpdb->prefix}myz_knowledge WHERE source_type = 'file' ORDER BY updated_at DESC");
         ?>
         <div class="wrap">
             <h1>MYZ AI Chatbot 設定</h1>
@@ -602,6 +763,95 @@ class MYZ_AI_Chatbot {
                         </td>
                     </tr>
                     <tr>
+                        <th scope="row">文字・アイコンの色</th>
+                        <td>
+                            <?php $text_color = get_option('myz_chatbot_text_color', '#ffffff'); ?>
+                            <input type="color" name="myz_chatbot_text_color"
+                                   value="<?php echo esc_attr($text_color); ?>"
+                                   style="width:60px; height:40px; border:none; cursor:pointer;" />
+                            <input type="text" id="myz-text-color-text"
+                                   value="<?php echo esc_attr($text_color); ?>"
+                                   class="small-text" style="margin-left:8px;" />
+                            <p class="description">ボタンの文字、ヘッダーの文字、送信ボタンのアイコンの色を一括変更します。</p>
+                            <div style="margin-top:12px; display:flex; gap:16px;">
+                                <div style="text-align:center;">
+                                    <div id="myz-text-preview" style="background:<?php echo esc_attr(get_option('myz_chatbot_primary_color', '#159BBE')); ?>; color:<?php echo esc_attr($text_color); ?>; padding:10px 20px; border-radius:50px; font-size:14px; font-weight:600;">プレビュー</div>
+                                </div>
+                            </div>
+                            <script>
+                            (function(){
+                                var cp = document.querySelector('input[name="myz_chatbot_text_color"]');
+                                var tx = document.getElementById('myz-text-color-text');
+                                var pv = document.getElementById('myz-text-preview');
+                                cp.addEventListener('input', function(){ tx.value = cp.value; pv.style.color = cp.value; });
+                                tx.addEventListener('input', function(){ if(/^#[0-9a-fA-F]{6}$/.test(tx.value)){ cp.value = tx.value; pv.style.color = tx.value; }});
+                            })();
+                            </script>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">フォント</th>
+                        <td>
+                            <?php
+                            $font_family = get_option('myz_chatbot_font_family', 'system');
+                            $font_weight = get_option('myz_chatbot_font_weight', '600');
+                            $font_size = get_option('myz_chatbot_font_size', '15');
+                            ?>
+                            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                                <div>
+                                    <label style="font-weight:600; font-size:13px; display:block; margin-bottom:6px;">書体</label>
+                                    <select name="myz_chatbot_font_family" id="myz-font-family" style="min-width:200px;">
+                                        <option value="system" <?php selected($font_family, 'system'); ?>>システム標準</option>
+                                        <option value="gothic" <?php selected($font_family, 'gothic'); ?>>ゴシック体</option>
+                                        <option value="mincho" <?php selected($font_family, 'mincho'); ?>>明朝体</option>
+                                        <option value="maru" <?php selected($font_family, 'maru'); ?>>丸ゴシック</option>
+                                        <option value="times" <?php selected($font_family, 'times'); ?>>Times New Roman</option>
+                                        <option value="mono" <?php selected($font_family, 'mono'); ?>>等幅フォント</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-weight:600; font-size:13px; display:block; margin-bottom:6px;">太さ</label>
+                                    <select name="myz_chatbot_font_weight" id="myz-font-weight" style="min-width:140px;">
+                                        <option value="300" <?php selected($font_weight, '300'); ?>>細い（Light）</option>
+                                        <option value="400" <?php selected($font_weight, '400'); ?>>標準（Regular）</option>
+                                        <option value="600" <?php selected($font_weight, '600'); ?>>やや太い（Semi Bold）</option>
+                                        <option value="700" <?php selected($font_weight, '700'); ?>>太い（Bold）</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-weight:600; font-size:13px; display:block; margin-bottom:6px;">サイズ</label>
+                                    <select name="myz_chatbot_font_size" id="myz-font-size" style="min-width:120px;">
+                                        <option value="12" <?php selected($font_size, '12'); ?>>12px（小）</option>
+                                        <option value="13" <?php selected($font_size, '13'); ?>>13px</option>
+                                        <option value="14" <?php selected($font_size, '14'); ?>>14px</option>
+                                        <option value="15" <?php selected($font_size, '15'); ?>>15px（標準）</option>
+                                        <option value="16" <?php selected($font_size, '16'); ?>>16px</option>
+                                        <option value="17" <?php selected($font_size, '17'); ?>>17px</option>
+                                        <option value="18" <?php selected($font_size, '18'); ?>>18px（大）</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="myz-font-preview" style="margin-top:16px; padding:16px; background:#f0f4f8; border-radius:12px; font-size:<?php echo esc_attr($font_size); ?>px; font-weight:<?php echo esc_attr($font_weight); ?>;">
+                                こんにちは！マイズインバウンドのAIアシスタントです。<br>サービス内容や料金など、お気軽にご質問ください。
+                            </div>
+                            <script>
+                            (function(){
+                                var pv = document.getElementById('myz-font-preview');
+                                var fonts = {
+                                    system: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
+                                    gothic: '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
+                                    mincho: '"Hiragino Mincho ProN", "Noto Serif JP", "Yu Mincho", "MS PMincho", serif',
+                                    maru: '"Hiragino Maru Gothic ProN", "Kosugi Maru", "Yu Gothic", sans-serif',
+                                    mono: '"SF Mono", "Hiragino Kaku Gothic ProN", "Courier New", monospace'
+                                };
+                                document.getElementById('myz-font-family').addEventListener('change', function(){ pv.style.fontFamily = fonts[this.value] || fonts.system; });
+                                document.getElementById('myz-font-weight').addEventListener('change', function(){ pv.style.fontWeight = this.value; });
+                                document.getElementById('myz-font-size').addEventListener('change', function(){ pv.style.fontSize = this.value + 'px'; });
+                            })();
+                            </script>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row">送信ボタンのアイコン</th>
                         <td>
                             <?php $send_icon = get_option('myz_chatbot_send_icon', 'paper-plane'); ?>
@@ -694,8 +944,11 @@ class MYZ_AI_Chatbot {
                     <tr>
                         <th scope="row">初期メッセージ</th>
                         <td>
+                            <?php
+                            $default_welcome_msg = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
+                            ?>
                             <textarea name="myz_chatbot_welcome_message" rows="3" class="large-text"
-                                ><?php echo esc_textarea(get_option('myz_chatbot_welcome_message', 'こんにちは！マイズインバウンドのAIアシスタントです。サービス内容や料金など、お気軽にご質問ください。')); ?></textarea>
+                                ><?php echo esc_textarea(get_option('myz_chatbot_welcome_message', $default_welcome_msg)); ?></textarea>
                             <p class="description">チャットを開いたときに最初に表示されるメッセージです。</p>
                         </td>
                     </tr>
@@ -725,7 +978,7 @@ class MYZ_AI_Chatbot {
                     <tr>
                         <th scope="row">ステータス</th>
                         <td>
-                            <p>学習済みページ数: <strong><?php echo $knowledge_count; ?></strong></p>
+                            <p>学習済み件数: <strong><?php echo $knowledge_count; ?></strong>（URL: <?php echo $url_count; ?> / ファイル: <?php echo $file_count; ?>）</p>
                             <p>最終更新: <strong id="myz-last-scraped"><?php echo esc_html($last_scraped); ?></strong></p>
                             <button type="button" id="myz-scrape-btn" class="button button-secondary">今すぐ更新</button>
                             <span id="myz-scrape-status" style="margin-left:12px;"></span>
@@ -733,27 +986,100 @@ class MYZ_AI_Chatbot {
                     </tr>
                 </table>
 
-                <h2>プラグイン更新設定</h2>
+                <h2>ファイル学習（Excel / PDF / Word / CSV / TXT）</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row">GitHubリポジトリ</th>
+                        <th scope="row">ファイルをアップロード</th>
                         <td>
-                            <input type="text" name="myz_chatbot_github_repo"
-                                   value="<?php echo esc_attr(get_option('myz_chatbot_github_repo', '')); ?>"
-                                   class="regular-text" placeholder="例: username/myz-ai-chatbot" />
-                            <p class="description">GitHubリポジトリを <code>ユーザー名/リポジトリ名</code> の形式で入力してください。<br>設定すると、WordPressの「更新」ページからワンクリックで更新できるようになります。</p>
+                            <div id="myz-file-drop" style="border:2px dashed #b4c1d4; border-radius:10px; padding:24px; text-align:center; background:#f8fafc; cursor:pointer; transition:all 0.2s;">
+                                <div style="font-size:36px; line-height:1; margin-bottom:8px;">📄</div>
+                                <p style="margin:6px 0 4px 0; font-weight:600; color:#333;">ファイルをドラッグ＆ドロップ または クリックして選択</p>
+                                <p style="margin:0; font-size:12px; color:#666;">対応: PDF / Excel(.xlsx) / Word(.docx) / CSV / TXT / Markdown（最大10MB）</p>
+                                <input type="file" id="myz-file-input" accept=".pdf,.xlsx,.docx,.csv,.txt,.md,.markdown" multiple style="display:none;" />
+                            </div>
+                            <div id="myz-file-status" style="margin-top:10px;"></div>
+                            <p class="description" style="margin-top:8px;">アップロードしたファイルから自動でテキストを抽出し、AIの学習データに追加します。<br>※ PDFは画像化されたものや一部の日本語フォントは抽出できない場合があります。その場合はTXTに変換してアップロードしてください。</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row">アップロード済みファイル</th>
+                        <td>
+                            <table id="myz-file-list" class="widefat striped" style="max-width:900px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:40%;">ファイル名</th>
+                                        <th style="width:12%;">形式</th>
+                                        <th style="width:13%;">サイズ</th>
+                                        <th style="width:13%;">抽出文字数</th>
+                                        <th style="width:14%;">登録日時</th>
+                                        <th style="width:8%;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php if (empty($file_rows)): ?>
+                                    <tr id="myz-file-empty"><td colspan="6" style="text-align:center; color:#888; padding:16px;">まだファイルがアップロードされていません</td></tr>
+                                <?php else: foreach ($file_rows as $r):
+                                    $ext_upper = strtoupper(pathinfo($r->filename, PATHINFO_EXTENSION));
+                                    $size_kb = $r->file_size > 0 ? number_format($r->file_size / 1024, 1) . ' KB' : '-';
+                                ?>
+                                    <tr data-id="<?php echo (int)$r->id; ?>">
+                                        <td><?php echo esc_html($r->filename); ?></td>
+                                        <td><?php echo esc_html($ext_upper); ?></td>
+                                        <td><?php echo esc_html($size_kb); ?></td>
+                                        <td><?php echo number_format((int)$r->chars); ?> 文字</td>
+                                        <td><?php echo esc_html($r->updated_at); ?></td>
+                                        <td><button type="button" class="button button-small myz-delete-file" data-id="<?php echo (int)$r->id; ?>">削除</button></td>
+                                    </tr>
+                                <?php endforeach; endif; ?>
+                                </tbody>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+                <h2>スタンドアロンページ（QRコード用）</h2>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">ページURL</th>
+                        <td>
+                            <?php
+                            $sa_slug = get_option('myz_chatbot_standalone_slug', 'chatbot');
+                            $sa_url = home_url('/' . $sa_slug . '/');
+                            ?>
+                            <code style="font-size:15px; padding:8px 12px; background:#f0f4f8; border-radius:6px; display:inline-block;">
+                                <a href="<?php echo esc_url($sa_url); ?>" target="_blank"><?php echo esc_html($sa_url); ?></a>
+                            </code>
+                            <p class="description" style="margin-top:8px;">このURLにアクセスすると、チャットボットだけの全画面ページが表示されます。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">URLスラグ</th>
+                        <td>
+                            <input type="text" name="myz_chatbot_standalone_slug"
+                                   value="<?php echo esc_attr($sa_slug); ?>"
+                                   class="regular-text" placeholder="chatbot" />
+                            <p class="description">URLの末尾部分を変更できます。例: <code>chatbot</code> → <?php echo home_url('/chatbot/'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">QRコード</th>
+                        <td>
+                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=<?php echo urlencode($sa_url); ?>"
+                                 alt="QR Code" style="border:1px solid #e2e8f0; border-radius:8px; padding:8px; background:#fff;" />
+                            <p class="description" style="margin-top:8px;">このQRコードを客室やチラシに印刷してご利用ください。<br>右クリック →「名前を付けて画像を保存」でダウンロードできます。</p>
+                        </td>
+                    </tr>
+                </table>
+
+                <h2>プラグイン更新設定</h2>
+                <table class="form-table">
                     <tr>
                         <th scope="row">現在のバージョン</th>
                         <td>
                             <p><strong style="font-size:16px;">v<?php echo MYZ_CHATBOT_VERSION; ?></strong></p>
-                            <?php if (get_option('myz_chatbot_github_repo', '')): ?>
                             <button type="button" id="myz-check-update-btn" class="button button-secondary">更新をチェック</button>
                             <span id="myz-update-status" style="margin-left:12px;"></span>
-                            <?php else: ?>
-                            <p class="description" style="color:#d63638;">GitHubリポジトリを設定すると更新チェックが有効になります。</p>
-                            <?php endif; ?>
+                            <p class="description" style="margin-top:8px;">リポジトリ: <code>myzinbound/myz-ai-chatbot</code></p>
                         </td>
                     </tr>
                 </table>
@@ -763,6 +1089,147 @@ class MYZ_AI_Chatbot {
         </div>
 
         <script>
+        // ファイル学習: アップロード/削除
+        (function(){
+            var drop = document.getElementById('myz-file-drop');
+            var input = document.getElementById('myz-file-input');
+            var status = document.getElementById('myz-file-status');
+            var list = document.getElementById('myz-file-list');
+            if (!drop || !input) return;
+
+            var nonce = '<?php echo wp_create_nonce("myz_file_nonce"); ?>';
+            var ajaxUrl = '<?php echo admin_url("admin-ajax.php"); ?>';
+
+            drop.addEventListener('click', function(){ input.click(); });
+            drop.addEventListener('dragover', function(e){
+                e.preventDefault();
+                drop.style.background = '#eef6fb';
+                drop.style.borderColor = '#159BBE';
+            });
+            drop.addEventListener('dragleave', function(){
+                drop.style.background = '#f8fafc';
+                drop.style.borderColor = '#b4c1d4';
+            });
+            drop.addEventListener('drop', function(e){
+                e.preventDefault();
+                drop.style.background = '#f8fafc';
+                drop.style.borderColor = '#b4c1d4';
+                if (e.dataTransfer && e.dataTransfer.files) {
+                    uploadFiles(e.dataTransfer.files);
+                }
+            });
+            input.addEventListener('change', function(){
+                if (input.files) uploadFiles(input.files);
+            });
+
+            function setStatus(html, color) {
+                status.innerHTML = html;
+                status.style.color = color || '#333';
+            }
+
+            function escapeHtml(s) {
+                return String(s).replace(/[&<>"']/g, function(c){
+                    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+                });
+            }
+
+            function uploadFiles(files) {
+                if (!files.length) return;
+                var arr = Array.from(files);
+                setStatus('アップロード中... (' + arr.length + 'ファイル)', '#666');
+                var idx = 0;
+                var results = [];
+
+                function next() {
+                    if (idx >= arr.length) {
+                        var ok = results.filter(function(r){ return r.ok; }).length;
+                        var ng = results.length - ok;
+                        var msg = '✅ ' + ok + '件 成功';
+                        if (ng > 0) msg += ' / ❌ ' + ng + '件 失敗';
+                        var errors = results.filter(function(r){ return !r.ok; }).map(function(r){ return '・' + r.name + ': ' + r.msg; });
+                        if (errors.length) msg += '<br>' + errors.join('<br>');
+                        setStatus(msg, ng > 0 ? '#d63638' : '#00a32a');
+                        input.value = '';
+                        return;
+                    }
+                    var f = arr[idx++];
+                    var fd = new FormData();
+                    fd.append('action', 'myz_upload_knowledge_file');
+                    fd.append('nonce', nonce);
+                    fd.append('file', f);
+                    fetch(ajaxUrl, { method: 'POST', body: fd })
+                        .then(function(r){ return r.json(); })
+                        .then(function(data){
+                            if (data.success) {
+                                results.push({ ok: true, name: f.name });
+                                addRow(data.data);
+                            } else {
+                                results.push({ ok: false, name: f.name, msg: (data.data && data.data.message) || 'エラー' });
+                            }
+                            next();
+                        })
+                        .catch(function(){
+                            results.push({ ok: false, name: f.name, msg: '通信エラー' });
+                            next();
+                        });
+                }
+                next();
+            }
+
+            function addRow(d) {
+                var tbody = list.querySelector('tbody');
+                var empty = document.getElementById('myz-file-empty');
+                if (empty) empty.remove();
+                var ext = (d.filename.split('.').pop() || '').toUpperCase();
+                var sizeKb = d.size > 0 ? (d.size / 1024).toFixed(1) + ' KB' : '-';
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-id', d.id);
+                tr.innerHTML =
+                    '<td>' + escapeHtml(d.filename) + (d.truncated ? ' <span style="color:#d97706; font-size:11px;">（上限到達）</span>' : '') + '</td>' +
+                    '<td>' + escapeHtml(ext) + '</td>' +
+                    '<td>' + sizeKb + '</td>' +
+                    '<td>' + d.chars.toLocaleString() + ' 文字</td>' +
+                    '<td>' + escapeHtml(d.updated) + '</td>' +
+                    '<td><button type="button" class="button button-small myz-delete-file" data-id="' + d.id + '">削除</button></td>';
+                tbody.insertBefore(tr, tbody.firstChild);
+            }
+
+            // 削除（イベントデリゲーション）
+            list.addEventListener('click', function(e){
+                var btn = e.target.closest('.myz-delete-file');
+                if (!btn) return;
+                if (!confirm('このファイルを削除してよろしいですか？')) return;
+                var id = btn.getAttribute('data-id');
+                btn.disabled = true;
+                var fd = new FormData();
+                fd.append('action', 'myz_delete_knowledge_file');
+                fd.append('nonce', nonce);
+                fd.append('id', id);
+                fetch(ajaxUrl, { method: 'POST', body: fd })
+                    .then(function(r){ return r.json(); })
+                    .then(function(data){
+                        if (data.success) {
+                            var row = list.querySelector('tr[data-id="' + id + '"]');
+                            if (row) row.remove();
+                            if (!list.querySelector('tbody tr')) {
+                                var tbody = list.querySelector('tbody');
+                                var tr = document.createElement('tr');
+                                tr.id = 'myz-file-empty';
+                                tr.innerHTML = '<td colspan="6" style="text-align:center; color:#888; padding:16px;">まだファイルがアップロードされていません</td>';
+                                tbody.appendChild(tr);
+                            }
+                        } else {
+                            alert('削除に失敗: ' + ((data.data && data.data.message) || '不明なエラー'));
+                            btn.disabled = false;
+                        }
+                    })
+                    .catch(function(){
+                        alert('通信エラー');
+                        btn.disabled = false;
+                    });
+            });
+        })();
+
         // 更新チェック
         (function(){
             var btn = document.getElementById('myz-check-update-btn');
@@ -1059,6 +1526,276 @@ class MYZ_AI_Chatbot {
         return 'その他';
     }
 
+    /**
+     * リライトルール追加（/chatbot/ でアクセス可能に）
+     */
+    public function add_rewrite_rules() {
+        $slug = get_option('myz_chatbot_standalone_slug', 'chatbot');
+        add_rewrite_rule('^' . preg_quote($slug) . '/?$', 'index.php?myz_chatbot_standalone=1', 'top');
+    }
+
+    public function add_query_vars($vars) {
+        $vars[] = 'myz_chatbot_standalone';
+        return $vars;
+    }
+
+    /**
+     * スタンドアロンページの表示
+     */
+    public function render_standalone_page() {
+        if (!get_query_var('myz_chatbot_standalone')) return;
+
+        $primary_color = get_option('myz_chatbot_primary_color', '#159BBE');
+        $text_color = get_option('myz_chatbot_text_color', '#ffffff');
+        $header_text = esc_html(get_option('myz_chatbot_header_text', 'AIに質問'));
+        $header_icon_key = get_option('myz_chatbot_header_icon', 'chat');
+        $header_emoji_map = [
+            'chat' => '💬', 'robot' => '🤖', 'operator' => '👩‍💼', 'house' => '🏠',
+            'target' => '🎯', 'sparkle' => '✨', 'phone' => '📞', 'bulb' => '💡', 'headset' => '🎧',
+        ];
+        $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
+        $send_icon = get_option('myz_chatbot_send_icon', 'paper-plane');
+        $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
+        $welcome_msg = nl2br(esc_html(get_option('myz_chatbot_welcome_message', $default_welcome)));
+        $font_family = get_option('myz_chatbot_font_family', 'system');
+        $font_weight = get_option('myz_chatbot_font_weight', '400');
+        $font_size = get_option('myz_chatbot_font_size', '14');
+
+        $font_map = [
+            'system' => '-apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
+            'gothic' => '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif',
+            'mincho' => '"Hiragino Mincho ProN", "Noto Serif JP", "Yu Mincho", serif',
+            'maru'   => '"Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", "Kosugi Maru", sans-serif',
+            'times'  => '"Times New Roman", Times, "Noto Serif", serif',
+            'rounded' => '"M PLUS Rounded 1c", "Kosugi Maru", sans-serif',
+        ];
+        $font_css = $font_map[$font_family] ?? $font_map['system'];
+
+        $site_name = get_bloginfo('name');
+
+        // 送信アイコンSVG
+        $send_icons = [
+            'paper-plane' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="' . esc_attr($text_color) . '"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+            'arrow-up'    => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="' . esc_attr($text_color) . '" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+            'arrow-right' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="' . esc_attr($text_color) . '" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>',
+            'send-circle' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="' . esc_attr($text_color) . '" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4v8l4-4z" fill="' . esc_attr($text_color) . '"/></svg>',
+        ];
+        $send_svg = $send_icons[$send_icon] ?? $send_icons['paper-plane'];
+
+        ?><!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title><?php echo $header_text; ?> - <?php echo esc_html($site_name); ?></title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --myz-primary: <?php echo esc_attr($primary_color); ?>;
+    --myz-text-color: <?php echo esc_attr($text_color); ?>;
+}
+body {
+    font-family: <?php echo $font_css; ?>;
+    font-weight: <?php echo esc_attr($font_weight); ?>;
+    font-size: <?php echo esc_attr($font_size); ?>px;
+    background: #f0f4f8;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+}
+#sa-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--myz-primary);
+    color: var(--myz-text-color);
+    padding: 16px 20px;
+    flex-shrink: 0;
+}
+.sa-header-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sa-header-icon { font-size: 22px; }
+.sa-header-title { font-size: 18px; font-weight: 600; }
+#sa-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sa-msg { display: flex; max-width: 85%; }
+.sa-msg.sa-bot { align-self: flex-start; }
+.sa-msg.sa-user { align-self: flex-end; }
+.sa-msg-content {
+    padding: 12px 16px;
+    border-radius: 16px;
+    line-height: 1.6;
+    word-break: break-word;
+}
+.sa-bot .sa-msg-content {
+    background: #fff;
+    color: #333;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.sa-user .sa-msg-content {
+    background: var(--myz-primary);
+    color: var(--myz-text-color);
+    border-bottom-right-radius: 4px;
+}
+.sa-typing { display: flex; align-items: center; gap: 4px; padding: 12px 16px; }
+.sa-dot {
+    width: 8px; height: 8px; background: #a0aec0; border-radius: 50%;
+    animation: saDot 1.2s infinite ease-in-out;
+}
+.sa-dot:nth-child(2) { animation-delay: 0.2s; }
+.sa-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes saDot {
+    0%, 60%, 100% { transform: scale(0.6); opacity: 0.4; }
+    30% { transform: scale(1); opacity: 1; }
+}
+#sa-input-area {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid #e8ecf0;
+    background: #fff;
+    gap: 8px;
+    flex-shrink: 0;
+}
+#sa-input {
+    flex: 1;
+    border: 1px solid #dde2e8;
+    border-radius: 24px;
+    padding: 12px 18px;
+    font-size: 16px;
+    outline: none;
+    font-family: inherit;
+    color: #1a1a1a;
+}
+#sa-input:focus { border-color: var(--myz-primary); }
+#sa-input::placeholder { color: #6b7280; }
+#sa-send {
+    background: var(--myz-primary);
+    color: var(--myz-text-color);
+    border: none;
+    border-radius: 50%;
+    width: 44px; height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+#sa-send:disabled { background: #a0aec0; cursor: not-allowed; }
+#sa-send svg { width: 20px; height: 20px; display: block; pointer-events: none; }
+.sa-msg-content strong { font-weight: 700; }
+.sa-msg-content a { color: var(--myz-primary); word-break: break-all; }
+#sa-messages::-webkit-scrollbar { width: 4px; }
+#sa-messages::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="sa-header">
+    <div class="sa-header-info">
+        <span class="sa-header-icon"><?php echo $header_icon; ?></span>
+        <span class="sa-header-title"><?php echo $header_text; ?></span>
+    </div>
+</div>
+<div id="sa-messages">
+    <div class="sa-msg sa-bot">
+        <div class="sa-msg-content"><?php echo $welcome_msg; ?></div>
+    </div>
+</div>
+<div id="sa-input-area">
+    <input type="text" id="sa-input" placeholder="質問を入力してください..." autocomplete="off" />
+    <button id="sa-send" aria-label="送信"><?php echo $send_svg; ?></button>
+</div>
+<script>
+(function(){
+    var input = document.getElementById('sa-input');
+    var sendBtn = document.getElementById('sa-send');
+    var messages = document.getElementById('sa-messages');
+    var isLoading = false;
+    var history = [];
+    var sessionId = 's_' + Date.now() + '_' + Math.random().toString(36).substr(2,8);
+    var ajaxUrl = '<?php echo admin_url("admin-ajax.php"); ?>';
+    var nonce = '<?php echo wp_create_nonce("myz_chatbot_nonce"); ?>';
+
+    sendBtn.addEventListener('click', sendMessage);
+    input.addEventListener('keydown', function(e){
+        if(e.key==='Enter'&&!e.isComposing){e.preventDefault();sendMessage();}
+    });
+
+    function formatReply(text){
+        var s=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        s=s.replace(/&lt;\/?(?:strong|em|b|i|br\s*\/?)&gt;/g,'');
+        s=s.replace(/^#{1,6}\s+/gm,'');
+        s=s.replace(/\*\*(.+?)\*\*/g,'$1');
+        s=s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,'$1');
+        s=s.replace(/^[\-\*]\s+/gm,'・');
+        s=s.replace(/^\*\s*/gm,'');
+        s=s.replace(/【(.+?)】/g,'<strong>【$1】</strong>');
+        s=s.replace(/(https?:\/\/[^\s<>&「」）)】]+)/g,'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+        s=s.replace(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g,'<a href="mailto:$1">$1</a>');
+        s=s.replace(/\n\n+/g,'<br><br>');
+        s=s.replace(/\n/g,'<br>');
+        return s;
+    }
+
+    function appendMessage(type, text){
+        var div=document.createElement('div');
+        div.className='sa-msg '+(type==='user'?'sa-user':'sa-bot');
+        var c=document.createElement('div');
+        c.className='sa-msg-content';
+        if(type==='bot'){c.innerHTML=formatReply(text);}else{c.textContent=text;}
+        div.appendChild(c);
+        messages.appendChild(div);
+        if(type==='user'){messages.scrollTop=messages.scrollHeight;}
+        else{var t=div.offsetTop-messages.offsetTop-8;messages.scrollTop=t;}
+    }
+
+    function showTyping(){
+        var div=document.createElement('div');div.className='sa-msg sa-bot';div.id='sa-typing';
+        var c=document.createElement('div');c.className='sa-typing';
+        c.innerHTML='<span class="sa-dot"></span><span class="sa-dot"></span><span class="sa-dot"></span>';
+        div.appendChild(c);messages.appendChild(div);messages.scrollTop=messages.scrollHeight;
+    }
+
+    function removeTyping(){var e=document.getElementById('sa-typing');if(e)e.remove();}
+
+    function sendMessage(){
+        var text=input.value.trim();if(!text||isLoading)return;
+        appendMessage('user',text);history.push({role:'user',content:text});input.value='';
+        showTyping();isLoading=true;sendBtn.disabled=true;
+        var fd=new FormData();
+        fd.append('action','myz_chat');fd.append('nonce',nonce);
+        fd.append('message',text);fd.append('history',JSON.stringify(history.slice(-10)));
+        fd.append('session_id',sessionId);
+        fetch(ajaxUrl,{method:'POST',body:fd})
+            .then(function(r){return r.json();})
+            .then(function(data){
+                removeTyping();
+                if(data.success&&data.data.reply){appendMessage('bot',data.data.reply);history.push({role:'assistant',content:data.data.reply});}
+                else{appendMessage('bot',(data.data&&data.data.message)?data.data.message:'エラーが発生しました。');}
+            })
+            .catch(function(){removeTyping();appendMessage('bot','通信エラーが発生しました。');})
+            .finally(function(){isLoading=false;sendBtn.disabled=false;});
+    }
+})();
+</script>
+</body>
+</html>
+        <?php
+        exit;
+    }
+
     public function enqueue_assets() {
         if (get_option('myz_chatbot_enabled', '1') !== '1') return;
 
@@ -1066,16 +1803,36 @@ class MYZ_AI_Chatbot {
         wp_enqueue_script('myz-chatbot-js', MYZ_CHATBOT_URL . 'assets/js/chatbot.js', [], MYZ_CHATBOT_VERSION, true);
 
         $primary_color = get_option('myz_chatbot_primary_color', '#159BBE');
+        $text_color = get_option('myz_chatbot_text_color', '#ffffff');
+        $font_family = get_option('myz_chatbot_font_family', 'system');
+        $font_weight = get_option('myz_chatbot_font_weight', '600');
+        $font_size = get_option('myz_chatbot_font_size', '15');
         $position = get_option('myz_chatbot_position', 'left');
+
+        $font_map = [
+            'system' => '-apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
+            'gothic' => '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
+            'mincho' => '"Hiragino Mincho ProN", "Noto Serif JP", "Yu Mincho", "MS PMincho", serif',
+            'maru'   => '"Hiragino Maru Gothic ProN", "Kosugi Maru", "Yu Gothic", sans-serif',
+            'times'  => '"Times New Roman", Times, "Noto Serif", serif',
+            'mono'   => '"SF Mono", "Hiragino Kaku Gothic ProN", "Courier New", monospace',
+        ];
+        $font_css = $font_map[$font_family] ?? $font_map['system'];
+
         wp_localize_script('myz-chatbot-js', 'myzChatbot', [
             'ajaxUrl'      => admin_url('admin-ajax.php'),
             'nonce'        => wp_create_nonce('myz_chatbot_nonce'),
             'primaryColor' => $primary_color,
+            'textColor'    => $text_color,
             'position'     => $position,
         ]);
 
-        // CSSカスタムプロパティでテーマカラーと位置を注入
-        $pos_css = ':root { --myz-primary: ' . esc_attr($primary_color) . '; }';
+        // CSSカスタムプロパティでテーマカラー、文字色、フォント、位置を注入
+        $pos_css = ':root { --myz-primary: ' . esc_attr($primary_color) . '; --myz-text-color: ' . esc_attr($text_color) . '; }'
+            . ' #myz-chatbot-container, #myz-chatbot-toggle, #myz-chatbot-toggle span { font-family: ' . $font_css . ' !important; }'
+            . ' #myz-chatbot-toggle, #myz-chatbot-toggle span { font-weight: ' . esc_attr($font_weight) . '; font-size: ' . esc_attr($font_size) . 'px; }'
+            . ' .myz-message-content { font-size: ' . esc_attr($font_size) . 'px; }'
+            . ' .myz-header-title { font-family: ' . $font_css . ' !important; }';
         if ($position === 'right') {
             $pos_css .= '
                 #myz-chatbot-container { left:auto; right:24px; }
@@ -1106,10 +1863,10 @@ class MYZ_AI_Chatbot {
      */
     private function get_send_icon_svg($icon) {
         $icons = [
-            'paper-plane'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="#ffffff"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
-            'arrow-up'     => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
-            'arrow-right'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>',
-            'send-circle'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4v8l4-4z" fill="#ffffff"/></svg>',
+            'paper-plane'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+            'arrow-up'     => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+            'arrow-right'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>',
+            'send-circle'  => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4v8l4-4z" fill="currentColor"/></svg>',
         ];
         return $icons[$icon] ?? $icons['paper-plane'];
     }
@@ -1122,14 +1879,26 @@ class MYZ_AI_Chatbot {
         $toggle_size = get_option('myz_chatbot_toggle_size', 'medium');
         $toggle_radius = get_option('myz_chatbot_toggle_radius', '50');
 
-        // サイズ別のスタイル
-        $size_styles = [
-            'small'  => 'padding:8px 16px; font-size:12px;',
-            'medium' => 'padding:14px 24px; font-size:15px;',
-            'large'  => 'padding:18px 32px; font-size:18px;',
-        ];
-        $toggle_style = ($size_styles[$toggle_size] ?? $size_styles['medium'])
-                       . ' border-radius:' . intval($toggle_radius) . 'px;';
+        // アイコンのみ（テキスト空）の場合は丸ボタン
+        $is_icon_only = empty(trim($toggle_text));
+
+        if ($is_icon_only) {
+            $size_styles = [
+                'small'  => 'width:44px; height:44px; padding:0; font-size:12px;',
+                'medium' => 'width:56px; height:56px; padding:0; font-size:15px;',
+                'large'  => 'width:68px; height:68px; padding:0; font-size:18px;',
+            ];
+            $toggle_style = ($size_styles[$toggle_size] ?? $size_styles['medium'])
+                           . ' border-radius:50%; justify-content:center;';
+        } else {
+            $size_styles = [
+                'small'  => 'padding:8px 16px; font-size:12px;',
+                'medium' => 'padding:14px 24px; font-size:15px;',
+                'large'  => 'padding:18px 32px; font-size:18px;',
+            ];
+            $toggle_style = ($size_styles[$toggle_size] ?? $size_styles['medium'])
+                           . ' border-radius:' . intval($toggle_radius) . 'px;';
+        }
 
         $header_text = esc_html(get_option('myz_chatbot_header_text', 'AIに質問'));
         $header_icon_key = get_option('myz_chatbot_header_icon', 'chat');
@@ -1139,7 +1908,8 @@ class MYZ_AI_Chatbot {
         ];
         $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
         $send_icon   = get_option('myz_chatbot_send_icon', 'paper-plane');
-        $welcome_msg = esc_html(get_option('myz_chatbot_welcome_message', 'こんにちは！マイズインバウンドのAIアシスタントです。サービス内容や料金など、お気軽にご質問ください。'));
+        $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
+        $welcome_msg = nl2br(esc_html(get_option('myz_chatbot_welcome_message', $default_welcome)));
         ?>
         <div id="myz-chatbot-container">
             <div id="myz-chatbot-window" class="myz-hidden">
@@ -1168,7 +1938,9 @@ class MYZ_AI_Chatbot {
             </div>
             <button id="myz-chatbot-toggle" aria-label="<?php echo $toggle_text; ?>" style="<?php echo esc_attr($toggle_style); ?>">
                 <?php echo $this->get_toggle_icon_svg($toggle_icon); ?>
+                <?php if (!$is_icon_only): ?>
                 <span id="myz-toggle-text"><?php echo $toggle_text; ?></span>
+                <?php endif; ?>
             </button>
         </div>
         <?php

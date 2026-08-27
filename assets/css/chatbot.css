@@ -2,11 +2,12 @@
 
 :root {
     --myz-primary: #159BBE;
+    --myz-text-color: #ffffff;
 }
 
 #myz-chatbot-container {
     position: fixed;
-    bottom: 24px;
+    bottom: 20px;
     left: 24px;
     z-index: 99999;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
@@ -18,7 +19,7 @@
     align-items: center;
     gap: 8px;
     background: var(--myz-primary);
-    color: #fff;
+    color: var(--myz-text-color);
     border: none;
     border-radius: 50px;
     padding: 14px 24px;
@@ -61,8 +62,8 @@
     position: absolute;
     bottom: 70px;
     left: 0;
-    width: 380px;
-    max-height: 520px;
+    width: 440px;
+    max-height: 620px;
     background: #fff;
     border-radius: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
@@ -83,7 +84,7 @@
     align-items: center;
     justify-content: space-between;
     background: var(--myz-primary);
-    color: #fff;
+    color: var(--myz-text-color);
     padding: 16px 20px;
     flex-shrink: 0;
 }
@@ -106,7 +107,7 @@
 #myz-chatbot-close {
     background: none;
     border: none;
-    color: #fff;
+    color: var(--myz-text-color);
     font-size: 24px;
     cursor: pointer;
     padding: 0 4px;
@@ -127,8 +128,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    min-height: 300px;
-    max-height: 380px;
+    min-height: 380px;
+    max-height: 480px;
 }
 
 .myz-message {
@@ -160,7 +161,7 @@
 
 .myz-user .myz-message-content {
     background: var(--myz-primary);
-    color: #fff;
+    color: var(--myz-text-color);
     border-bottom-right-radius: 4px;
 }
 
@@ -225,7 +226,7 @@
 
 #myz-chatbot-send {
     background: var(--myz-primary);
-    color: #fff;
+    color: var(--myz-text-color);
     border: none;
     border-radius: 50%;
     width: 40px;
@@ -336,7 +337,7 @@
 /* モバイル対応 */
 @media (max-width: 480px) {
     #myz-chatbot-container {
-        bottom: 16px;
+        bottom: 12px;
         left: 16px;
         right: auto;
     }
