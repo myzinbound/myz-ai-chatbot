@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 3.1.0
+ * Version: 5.11.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.10.0');
+define('MYZ_CHATBOT_VERSION', '5.11.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -240,6 +240,11 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_text_color', ['default' => '#ffffff']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_send_icon', ['default' => 'paper-plane']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message', ['default' => "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else."]);
+        // 言語別初期メッセージ（空欄なら上の共通メッセージを使用＝後方互換）
+        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_ja', ['default' => '']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_en', ['default' => '']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_zh', ['default' => '']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_ko', ['default' => '']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_standalone_slug', [
             'default' => 'chatbot',
             'sanitize_callback' => function($val) {
@@ -949,7 +954,26 @@ class MYZ_AI_Chatbot {
                             ?>
                             <textarea name="myz_chatbot_welcome_message" rows="3" class="large-text"
                                 ><?php echo esc_textarea(get_option('myz_chatbot_welcome_message', $default_welcome_msg)); ?></textarea>
-                            <p class="description">チャットを開いたときに最初に表示されるメッセージです。</p>
+                            <p class="description">チャットを開いたときに最初に表示されるメッセージです（共通・フォールバック用）。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">言語別初期メッセージ</th>
+                        <td>
+                            <?php
+                            $lang_labels = [
+                                'ja' => '日本語',
+                                'en' => 'English',
+                                'zh' => '中文（繁體）',
+                                'ko' => '한국어',
+                            ];
+                            foreach ($lang_labels as $lang_code => $lang_label) :
+                            ?>
+                            <p style="margin:8px 0 2px;"><strong><?php echo $lang_label; ?></strong></p>
+                            <textarea name="myz_chatbot_welcome_message_<?php echo $lang_code; ?>" rows="2" class="large-text"
+                                ><?php echo esc_textarea(get_option('myz_chatbot_welcome_message_' . $lang_code, '')); ?></textarea>
+                            <?php endforeach; ?>
+                            <p class="description">ページURLの言語（/zh-〜, /ko-〜, /en/・〜-en, それ以外は日本語）に応じて表示されます。空欄の言語は英語→上の共通メッセージの順にフォールバックします。すべて空欄なら従来どおり共通メッセージのみ表示されます。</p>
                         </td>
                     </tr>
                 </table>
@@ -1540,6 +1564,56 @@ class MYZ_AI_Chatbot {
     }
 
     /**
+     * ページ言語の判定（URLスラッグ接頭辞優先。Bogoロケールは当てにならないため補助扱い）
+     * myz-floating-cta v2.1.0 の detect_lang() と同方式。
+     */
+    private function detect_lang() {
+        $path = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+
+        if (strpos($path, '/zh-') !== false || strpos($path, '/zh/') !== false) {
+            return 'zh';
+        }
+        if (strpos($path, '/ko-') !== false || strpos($path, '/ko/') !== false) {
+            return 'ko';
+        }
+        if (strpos($path, '/en/') !== false || strpos($path, '-en/') !== false || substr($path, -3) === '-en') {
+            return 'en';
+        }
+
+        $locale = function_exists('get_locale') ? get_locale() : '';
+        if (strpos($locale, 'zh') === 0) { return 'zh'; }
+        if (strpos($locale, 'ko') === 0) { return 'ko'; }
+        if (strpos($locale, 'en') === 0) { return 'en'; }
+
+        return 'ja';
+    }
+
+    /**
+     * ページ言語に応じた初期メッセージを返す。
+     * 言語別設定が空ならenへ、それも空なら従来の共通メッセージへフォールバック（後方互換）。
+     */
+    private function get_welcome_message() {
+        $lang = $this->detect_lang();
+
+        $msg = get_option('myz_chatbot_welcome_message_' . $lang, '');
+        if (trim($msg) !== '') {
+            return $msg;
+        }
+
+        // 用意のない言語は英語にフォールバック
+        if ($lang !== 'en') {
+            $msg = get_option('myz_chatbot_welcome_message_en', '');
+            if ($lang !== 'ja' && trim($msg) !== '') {
+                return $msg;
+            }
+        }
+
+        // 従来どおりの共通メッセージ（言語別設定が未使用のサイト向け）
+        $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
+        return get_option('myz_chatbot_welcome_message', $default_welcome);
+    }
+
+    /**
      * スタンドアロンページの表示
      */
     public function render_standalone_page() {
@@ -1555,8 +1629,7 @@ class MYZ_AI_Chatbot {
         ];
         $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
         $send_icon = get_option('myz_chatbot_send_icon', 'paper-plane');
-        $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
-        $welcome_msg = nl2br(esc_html(get_option('myz_chatbot_welcome_message', $default_welcome)));
+        $welcome_msg = nl2br(esc_html($this->get_welcome_message()));
         $font_family = get_option('myz_chatbot_font_family', 'system');
         $font_weight = get_option('myz_chatbot_font_weight', '400');
         $font_size = get_option('myz_chatbot_font_size', '14');
@@ -1908,8 +1981,7 @@ body {
         ];
         $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
         $send_icon   = get_option('myz_chatbot_send_icon', 'paper-plane');
-        $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
-        $welcome_msg = nl2br(esc_html(get_option('myz_chatbot_welcome_message', $default_welcome)));
+        $welcome_msg = nl2br(esc_html($this->get_welcome_message()));
         ?>
         <div id="myz-chatbot-container">
             <div id="myz-chatbot-window" class="myz-hidden">
