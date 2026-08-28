@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.12.1
+ * Version: 5.13.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.12.1');
+define('MYZ_CHATBOT_VERSION', '5.13.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -241,6 +241,10 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_send_icon', ['default' => 'paper-plane']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message', ['default' => "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else."]);
         // 言語別初期メッセージ（空欄なら上の共通メッセージを使用＝後方互換）
+        // 言語別ヘッダータイトル（空ならmyz_chatbot_header_textにフォールバック）
+        foreach (['en', 'zh', 'ko'] as $myz_header_lang) {
+            register_setting('myz_chatbot_settings', 'myz_chatbot_header_text_' . $myz_header_lang, ['default' => '']);
+        }
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_ja', ['default' => '']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_en', ['default' => '']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_zh', ['default' => '']);
@@ -724,6 +728,19 @@ class MYZ_AI_Chatbot {
                             <input type="text" name="myz_chatbot_header_text"
                                    value="<?php echo esc_attr(get_option('myz_chatbot_header_text', 'AIに質問')); ?>"
                                    class="regular-text" />
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">ヘッダーの文言（言語別）<br><span style="font-weight:normal;font-size:12px;color:#666;">多言語サイト用。空欄なら上の文言を使います</span></th>
+                        <td>
+                            <?php foreach (['en' => '英語', 'zh' => '中国語', 'ko' => '韓国語'] as $hl => $hl_label) : ?>
+                                <p style="margin:0 0 8px;">
+                                    <label style="display:inline-block;width:5em;"><?php echo esc_html($hl_label); ?></label>
+                                    <input type="text" name="myz_chatbot_header_text_<?php echo esc_attr($hl); ?>"
+                                           value="<?php echo esc_attr(get_option('myz_chatbot_header_text_' . $hl, '')); ?>"
+                                           class="regular-text" />
+                                </p>
+                            <?php endforeach; ?>
                         </td>
                     </tr>
                     <tr>
@@ -1596,6 +1613,21 @@ class MYZ_AI_Chatbot {
     }
 
     /**
+     * ページ言語に応じたヘッダータイトルを返す。
+     * 言語別設定が空なら共通のmyz_chatbot_header_textへフォールバック（後方互換）。
+     */
+    private function get_header_text() {
+        $lang = $this->detect_lang();
+        if ($lang !== 'ja') {
+            $text = get_option('myz_chatbot_header_text_' . $lang, '');
+            if (trim($text) !== '') {
+                return $text;
+            }
+        }
+        return get_option('myz_chatbot_header_text', 'AIに質問');
+    }
+
+    /**
      * ページ言語に応じた初期メッセージを返す。
      * 言語別設定が空ならenへ、それも空なら従来の共通メッセージへフォールバック（後方互換）。
      */
@@ -1628,7 +1660,7 @@ class MYZ_AI_Chatbot {
 
         $primary_color = get_option('myz_chatbot_primary_color', '#159BBE');
         $text_color = get_option('myz_chatbot_text_color', '#ffffff');
-        $header_text = esc_html(get_option('myz_chatbot_header_text', 'AIに質問'));
+        $header_text = esc_html($this->get_header_text());
         $header_icon_key = get_option('myz_chatbot_header_icon', 'chat');
         $header_emoji_map = [
             'chat' => '💬', 'robot' => '🤖', 'operator' => '👩‍💼', 'house' => '🏠',
@@ -1980,7 +2012,7 @@ body {
                            . ' border-radius:' . intval($toggle_radius) . 'px;';
         }
 
-        $header_text = esc_html(get_option('myz_chatbot_header_text', 'AIに質問'));
+        $header_text = esc_html($this->get_header_text());
         $header_icon_key = get_option('myz_chatbot_header_icon', 'chat');
         $header_emoji_map = [
             'chat' => '💬', 'robot' => '🤖', 'operator' => '👩‍💼', 'house' => '🏠',
