@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.12.0
+ * Version: 5.12.1
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.12.0');
+define('MYZ_CHATBOT_VERSION', '5.12.1');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -633,13 +633,17 @@ class MYZ_AI_Chatbot {
                             <td>
                                 <?php $gemini_model = get_option('myz_chatbot_gemini_model', 'gemini-2.0-flash'); ?>
                                 <select name="myz_chatbot_gemini_model">
-                                    <option value="gemini-3-pro-preview" <?php selected($gemini_model, 'gemini-3-pro-preview'); ?>>Gemini 3 Pro（最上位・プレビュー）</option>
-                                    <option value="gemini-2.5-pro" <?php selected($gemini_model, 'gemini-2.5-pro'); ?>>Gemini 2.5 Pro（高性能・安定版）</option>
-                                    <option value="gemini-2.5-flash" <?php selected($gemini_model, 'gemini-2.5-flash'); ?>>Gemini 2.5 Flash（推奨・高速・安定版）</option>
-                                    <option value="gemini-2.0-flash" <?php selected($gemini_model, 'gemini-2.0-flash'); ?>>Gemini 2.0 Flash（高速・旧世代）</option>
-                                    <option value="gemini-2.5-flash-preview-05-20" <?php selected($gemini_model, 'gemini-2.5-flash-preview-05-20'); ?>>Gemini 2.5 Flash（旧プレビュー版）</option>
-                                    <option value="gemini-2.5-pro-preview-05-06" <?php selected($gemini_model, 'gemini-2.5-pro-preview-05-06'); ?>>Gemini 2.5 Pro（旧プレビュー版）</option>
+                                    <option value="gemini-3.5-flash" <?php selected($gemini_model, 'gemini-3.5-flash'); ?>>Gemini 3.5 Flash（推奨・最新・高速）</option>
+                                    <option value="gemini-3.1-pro-preview" <?php selected($gemini_model, 'gemini-3.1-pro-preview'); ?>>Gemini 3.1 Pro（最高性能・応答遅め）</option>
+                                    <option value="gemini-3.5-flash-lite" <?php selected($gemini_model, 'gemini-3.5-flash-lite'); ?>>Gemini 3.5 Flash Lite（最速・低コスト）</option>
+                                    <option value="gemini-3-flash-preview" <?php selected($gemini_model, 'gemini-3-flash-preview'); ?>>Gemini 3 Flash（プレビュー）</option>
+                                    <option value="gemini-flash-latest" <?php selected($gemini_model, 'gemini-flash-latest'); ?>>Gemini Flash 最新版（自動追従）</option>
+                                    <option value="gemini-pro-latest" <?php selected($gemini_model, 'gemini-pro-latest'); ?>>Gemini Pro 最新版（自動追従）</option>
+                                    <option value="gemini-2.5-pro" <?php selected($gemini_model, 'gemini-2.5-pro'); ?>>Gemini 2.5 Pro（旧キーのみ・新規キーでは利用不可）</option>
+                                    <option value="gemini-2.5-flash" <?php selected($gemini_model, 'gemini-2.5-flash'); ?>>Gemini 2.5 Flash（旧キーのみ・新規キーでは利用不可）</option>
+                                    <option value="gemini-2.0-flash" <?php selected($gemini_model, 'gemini-2.0-flash'); ?>>Gemini 2.0 Flash（旧世代）</option>
                                 </select>
+                                <p class="description">※2026年以降に発行した新形式キー（AQ.〜）ではGemini 3系のみ利用可能です。</p>
                             </td>
                         </tr>
                     </table>
