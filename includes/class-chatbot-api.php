@@ -251,7 +251,9 @@ class MYZ_Chatbot_API {
         // 1024のままだと本文が生成される前に打ち切られ、textが空のまま返る。
         // FAQ用途なので思考は最小のlowにし、出力枠も広げておく。
         if ($this->gemini_has_thinking($model)) {
-            $gen['thinkingLevel'] = 'low';
+            // v1beta RESTでは generationConfig.thinkingConfig.thinkingLevel の入れ子。
+            // フラットに thinkingLevel / thinking_level を置くと400（Cannot find field）。
+            $gen['thinkingConfig'] = ['thinkingLevel' => 'low'];
             $gen['maxOutputTokens'] = max($this->max_tokens, 4096);
         }
 
