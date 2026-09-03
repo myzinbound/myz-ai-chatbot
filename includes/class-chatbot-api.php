@@ -233,7 +233,7 @@ class MYZ_Chatbot_API {
      * Gemini (Google) API 呼び出し
      */
     private function call_gemini($api_key, $system_prompt, $messages) {
-        $model = get_option('myz_chatbot_gemini_model', 'gemini-2.0-flash');
+        $model = get_option('myz_chatbot_gemini_model', 'gemini-3.8-flash');
 
         // Gemini形式: contents配列を構築
         $contents = [];
@@ -245,14 +245,22 @@ class MYZ_Chatbot_API {
             ];
         }
 
+        $gen = ['maxOutputTokens' => $this->max_tokens];
+
+        // Gemini 3.8系は思考が既定でONで、思考トークンもmaxOutputTokensを食う。
+        // 1024のままだと本文が生成される前に打ち切られ、textが空のまま返る。
+        // FAQ用途なので思考は最小のlowにし、出力枠も広げておく。
+        if ($this->gemini_has_thinking($model)) {
+            $gen['thinkingLevel'] = 'low';
+            $gen['maxOutputTokens'] = max($this->max_tokens, 4096);
+        }
+
         $body = [
             'system_instruction' => [
                 'parts' => [['text' => $system_prompt]],
             ],
             'contents' => $contents,
-            'generationConfig' => [
-                'maxOutputTokens' => $this->max_tokens,
-            ],
+            'generationConfig' => $gen,
         ];
 
         $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . $api_key;
@@ -278,7 +286,29 @@ class MYZ_Chatbot_API {
             return new WP_Error('api_error', '回答の生成に失敗しました（Gemini ' . $status_code . '）。');
         }
 
-        return $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        // 思考パート（thought=true）が先頭に来ることがあるので、本文パートだけを拾う
+        $parts = $body['candidates'][0]['content']['parts'] ?? [];
+        $text = '';
+        foreach ($parts as $part) {
+            if (!empty($part['thought'])) continue;
+            if (isset($part['text'])) $text .= $part['text'];
+        }
+
+        if ($text === '') {
+            $finish = $body['candidates'][0]['finishReason'] ?? 'empty';
+            error_log('MYZ Chatbot Gemini: 本文が空 finishReason=' . $finish . ' model=' . $model);
+            return new WP_Error('api_error', '回答の生成に失敗しました（Gemini: ' . $finish . '）。');
+        }
+
+        return $text;
+    }
+
+    /**
+     * thinkingLevel を受け付けるモデルか（Gemini 3.8系のみ）
+     * 対応しないモデルに送ると400になるため、明示的に絞る
+     */
+    private function gemini_has_thinking($model) {
+        return strpos($model, 'gemini-3.8') === 0;
     }
 
     /**

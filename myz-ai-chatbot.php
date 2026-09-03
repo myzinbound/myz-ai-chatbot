@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.13.0
+ * Version: 5.14.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.13.0');
+define('MYZ_CHATBOT_VERSION', '5.14.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -221,7 +221,7 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_openai_api_key');
         register_setting('myz_chatbot_settings', 'myz_chatbot_openai_model', ['default' => 'gpt-4o-mini']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_gemini_api_key');
-        register_setting('myz_chatbot_settings', 'myz_chatbot_gemini_model', ['default' => 'gemini-2.0-flash']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_gemini_model', ['default' => 'gemini-3.8-flash']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_enabled', ['default' => '1']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_extra_instructions', [
             'default' => "プレーンテキストで回答してください。Markdownの記号（#, *, **など）は絶対に使わないでください。\n改行を適切に入れて読みやすくしてください。\n箇条書きには「・」を使ってください。\n回答は200文字以内を目安に簡潔にお願いします。",
@@ -635,9 +635,10 @@ class MYZ_AI_Chatbot {
                         <tr>
                             <th scope="row">モデル</th>
                             <td>
-                                <?php $gemini_model = get_option('myz_chatbot_gemini_model', 'gemini-2.0-flash'); ?>
+                                <?php $gemini_model = get_option('myz_chatbot_gemini_model', 'gemini-3.8-flash'); ?>
                                 <select name="myz_chatbot_gemini_model">
-                                    <option value="gemini-3.5-flash" <?php selected($gemini_model, 'gemini-3.5-flash'); ?>>Gemini 3.5 Flash（推奨・最新・高速）</option>
+                                    <option value="gemini-3.8-flash" <?php selected($gemini_model, 'gemini-3.8-flash'); ?>>Gemini 3.8 Flash（推奨・最新）</option>
+                                    <option value="gemini-3.5-flash" <?php selected($gemini_model, 'gemini-3.5-flash'); ?>>Gemini 3.5 Flash（前世代・高速）</option>
                                     <option value="gemini-3.1-pro-preview" <?php selected($gemini_model, 'gemini-3.1-pro-preview'); ?>>Gemini 3.1 Pro（最高性能・応答遅め）</option>
                                     <option value="gemini-3.5-flash-lite" <?php selected($gemini_model, 'gemini-3.5-flash-lite'); ?>>Gemini 3.5 Flash Lite（最速・低コスト）</option>
                                     <option value="gemini-3-flash-preview" <?php selected($gemini_model, 'gemini-3-flash-preview'); ?>>Gemini 3 Flash（プレビュー）</option>
