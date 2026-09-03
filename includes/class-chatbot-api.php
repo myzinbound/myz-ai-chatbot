@@ -20,6 +20,8 @@ class MYZ_Chatbot_API {
         $message = isset($_POST['message']) ? sanitize_text_field(wp_unslash($_POST['message'])) : '';
         $history = isset($_POST['history']) ? json_decode(wp_unslash($_POST['history']), true) : [];
         $session_id = isset($_POST['session_id']) ? sanitize_text_field(wp_unslash($_POST['session_id'])) : '';
+        $ui_lang = isset($_POST['ui_lang']) ? sanitize_text_field(wp_unslash($_POST['ui_lang'])) : '';
+        $ui_lang = in_array($ui_lang, ['ja', 'en', 'zh', 'ko'], true) ? $ui_lang : '';
 
         if (empty($message)) {
             wp_send_json_error(['message' => '質問を入力してください。']);
@@ -65,8 +67,8 @@ class MYZ_Chatbot_API {
             'content' => $message,
         ];
 
-        // システムプロンプトを構築
-        $system_prompt = $this->build_system_prompt();
+        // システムプロンプトを構築（画面の表示言語をヒントとして渡す）
+        $system_prompt = $this->build_system_prompt($ui_lang);
 
         // プロバイダー別にAPI呼び出し
         switch ($provider) {
@@ -117,7 +119,7 @@ class MYZ_Chatbot_API {
     /**
      * システムプロンプトを構築
      */
-    private function build_system_prompt() {
+    private function build_system_prompt($ui_lang = '') {
         $db_knowledge = MYZ_Chatbot_Scraper::get_knowledge_from_db();
         if (!empty($db_knowledge)) {
             $system_prompt = "あなたはマイズインバウンド株式会社のAIアシスタントです。\n以下のサイト情報をもとに、お客様からの質問に丁寧に回答してください。\n必ず質問された言語と同じ言語で回答してください（日本語の質問には日本語、英語には英語、中国語には中国語、韓国語には韓国語で回答）。\nわからない場合も質問と同じ言語で「お問い合わせください」と案内してください（例：英語なら \"Please contact us for more details.\"、中国語なら \"请联系我们了解更多详情。\"）。\n\n" . $db_knowledge;
@@ -135,6 +137,20 @@ class MYZ_Chatbot_API {
             . "・改行を適切に使って読みやすくしてください。\n"
             . "・質問された言語と同じ言語で必ず回答してください。「わからない」「お問い合わせください」という回答も含め、すべての回答を質問と同じ言語で行ってください。日本語以外の言語で日本語を混ぜることは絶対にしないでください。\n";
         $system_prompt .= $format_rules;
+
+        // 画面の表示言語（端末の言語設定）を回答言語のヒントにする
+        $lang_names = [
+            'ja' => '日本語',
+            'en' => '英語',
+            'zh' => '中国語',
+            'ko' => '韓国語',
+        ];
+        if ($ui_lang !== '' && isset($lang_names[$ui_lang])) {
+            $system_prompt .= "\n\n【この利用者の画面表示言語】\n"
+                . "・この利用者の端末の言語設定は" . $lang_names[$ui_lang] . "です。\n"
+                . "・質問の言語が判別できない場合（単語のみ、固有名詞のみ、数字のみ等）は" . $lang_names[$ui_lang] . "で回答してください。\n"
+                . "・質問の言語が明確な場合は、これまでどおり質問と同じ言語を優先してください。\n";
+        }
 
         // 管理画面の追加指示を反映
         $extra = get_option('myz_chatbot_extra_instructions', '');

@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.14.1
+ * Version: 5.15.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.14.1');
+define('MYZ_CHATBOT_VERSION', '5.15.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -21,6 +21,9 @@ require_once MYZ_CHATBOT_PATH . 'includes/class-file-parser.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-updater.php';
 
 class MYZ_AI_Chatbot {
+
+    /** スタンドアロンページ描画中は true（端末言語による判定を有効にする） */
+    private $standalone_context = false;
 
     const CATEGORIES = [
         '料金・費用'       => ['料金', '手数料', '費用', '価格', 'いくら', 'コスト', '月額', 'システム費', '契約金'],
@@ -998,7 +1001,7 @@ class MYZ_AI_Chatbot {
                             <textarea name="myz_chatbot_welcome_message_<?php echo $lang_code; ?>" rows="2" class="large-text"
                                 ><?php echo esc_textarea(get_option('myz_chatbot_welcome_message_' . $lang_code, '')); ?></textarea>
                             <?php endforeach; ?>
-                            <p class="description">ページURLの言語（/zh-〜, /ko-〜, /en/・〜-en, それ以外は日本語）に応じて表示されます。空欄の言語は英語→上の共通メッセージの順にフォールバックします。すべて空欄なら従来どおり共通メッセージのみ表示されます。</p>
+                            <p class="description">サイト内のウィジェットはページURLの言語（/zh-〜, /ko-〜, /en/・〜-en、それ以外は日本語）、<strong>QRコードのスタンドアロンページは視聴者の端末（スマホ）の言語設定</strong>に応じて表示されます。中文・韓国語が空欄の場合は同じ言語の汎用メッセージを自動で表示します（日本語のままにはなりません）。日本語・英語が空欄の場合は上の共通メッセージを使います。</p>
                         </td>
                     </tr>
                 </table>
@@ -1098,7 +1101,7 @@ class MYZ_AI_Chatbot {
                             <code style="font-size:15px; padding:8px 12px; background:#f0f4f8; border-radius:6px; display:inline-block;">
                                 <a href="<?php echo esc_url($sa_url); ?>" target="_blank"><?php echo esc_html($sa_url); ?></a>
                             </code>
-                            <p class="description" style="margin-top:8px;">このURLにアクセスすると、チャットボットだけの全画面ページが表示されます。</p>
+                            <p class="description" style="margin-top:8px;">このURLにアクセスすると、チャットボットだけの全画面ページが表示されます。<br>初期メッセージ・タイトル・入力欄は<strong>ゲストの端末の言語設定（日本語 / English / 中文 / 韓国語）を自動判定</strong>して切り替わります。言語を固定したQRを配る場合は <code>?lang=en</code> （en / zh / ko / ja）を付けてください。</p>
                         </td>
                     </tr>
                     <tr>
@@ -1593,6 +1596,13 @@ class MYZ_AI_Chatbot {
      * myz-floating-cta v2.1.0 の detect_lang() と同方式。
      */
     private function detect_lang() {
+        // 1) 明示指定（?lang=en 等）。言語別QRコードを配る場合に使う。
+        if (isset($_GET['lang'])) {
+            $forced = $this->normalize_lang(sanitize_text_field(wp_unslash($_GET['lang'])));
+            if ($forced !== '') { return $forced; }
+        }
+
+        // 2) URLスラッグ接頭辞（多言語サイトのページ言語）
         $path = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
 
         if (strpos($path, '/zh-') !== false || strpos($path, '/zh/') !== false) {
@@ -1605,6 +1615,12 @@ class MYZ_AI_Chatbot {
             return 'en';
         }
 
+        // 3) スタンドアロンページ（QRコード）はURLに言語の手がかりが無いので端末の言語設定に従う
+        if ($this->standalone_context) {
+            $browser = $this->detect_browser_lang();
+            if ($browser !== '') { return $browser; }
+        }
+
         $locale = function_exists('get_locale') ? get_locale() : '';
         if (strpos($locale, 'zh') === 0) { return 'zh'; }
         if (strpos($locale, 'ko') === 0) { return 'ko'; }
@@ -1614,14 +1630,133 @@ class MYZ_AI_Chatbot {
     }
 
     /**
+     * 言語タグ（ja / en-US / zh-TW / zh_CN / ko-KR 等）を ja/en/zh/ko に正規化。
+     * 対応外の言語は '' を返す（呼び出し側でフォールバックする）。
+     */
+    private function normalize_lang($raw) {
+        $raw = strtolower(str_replace('_', '-', trim((string) $raw)));
+        if ($raw === '') { return ''; }
+        if (strpos($raw, 'zh') === 0) { return 'zh'; }
+        if (strpos($raw, 'ko') === 0) { return 'ko'; }
+        if (strpos($raw, 'en') === 0) { return 'en'; }
+        if (strpos($raw, 'ja') === 0) { return 'ja'; }
+        return '';
+    }
+
+    /**
+     * ブラウザ（スマホ）の言語設定を Accept-Language ヘッダーから判定。
+     * q値の大きい順に見て、最初に対応できた言語を返す。
+     */
+    private function detect_browser_lang() {
+        $header = isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? $_SERVER['HTTP_ACCEPT_LANGUAGE'] : '';
+        if ($header === '') { return ''; }
+
+        $best = '';
+        $best_q = -1.0;
+        foreach (explode(',', $header) as $part) {
+            $part = trim($part);
+            if ($part === '') { continue; }
+            $q = 1.0;
+            $tag = $part;
+            if (strpos($part, ';') !== false) {
+                $pieces = explode(';', $part, 2);
+                $tag = $pieces[0];
+                if (preg_match('/q\s*=\s*([0-9.]+)/i', $pieces[1], $mq)) {
+                    $q = (float) $mq[1];
+                }
+            }
+            $lang = $this->normalize_lang($tag);
+            if ($lang === '') { continue; }
+            if ($q > $best_q) {
+                $best_q = $q;
+                $best = $lang;
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * 対応言語の一覧（表示順）
+     */
+    private function supported_langs() {
+        return ['ja', 'en', 'zh', 'ko'];
+    }
+
+    /**
+     * UI文字列（入力欄プレースホルダ・ボタンラベル・エラー文）の言語別辞書。
+     */
+    private function get_ui_strings($lang = null) {
+        if ($lang === null) { $lang = $this->detect_lang(); }
+        $dict = [
+            'ja' => [
+                'html_lang'   => 'ja',
+                'placeholder' => '質問を入力してください...',
+                'send'        => '送信',
+                'error'       => 'エラーが発生しました。',
+                'net_error'   => '通信エラーが発生しました。',
+            ],
+            'en' => [
+                'html_lang'   => 'en',
+                'placeholder' => 'Type your question...',
+                'send'        => 'Send',
+                'error'       => 'Sorry, an error occurred.',
+                'net_error'   => 'A connection error occurred.',
+            ],
+            'zh' => [
+                'html_lang'   => 'zh-Hant',
+                'placeholder' => '請輸入您的問題...',
+                'send'        => '傳送',
+                'error'       => '發生錯誤，請稍後再試。',
+                'net_error'   => '連線發生錯誤。',
+            ],
+            'ko' => [
+                'html_lang'   => 'ko',
+                'placeholder' => '질문을 입력해 주세요...',
+                'send'        => '전송',
+                'error'       => '오류가 발생했습니다.',
+                'net_error'   => '통신 오류가 발생했습니다.',
+            ],
+        ];
+        return isset($dict[$lang]) ? $dict[$lang] : $dict['ja'];
+    }
+
+    /**
+     * 言語別の既定ヘッダータイトル（管理画面で未入力のときの受け皿）
+     */
+    private function default_header_text($lang) {
+        $map = [
+            'en' => 'Ask AI',
+            'zh' => '詢問AI',
+            'ko' => 'AI에게 질문',
+        ];
+        return isset($map[$lang]) ? $map[$lang] : '';
+    }
+
+    /**
+     * 言語別の既定初期メッセージ（管理画面で未入力のときの受け皿）
+     */
+    private function default_welcome_message($lang) {
+        $map = [
+            'en' => "Hello! I'm your AI assistant. Feel free to ask me anything about the facility, your stay, rates, or the surrounding area.",
+            'zh' => "您好！我是AI客服助理。有關設施、住宿、費用或周邊資訊等問題，歡迎隨時詢問。",
+            'ko' => "안녕하세요! AI 어시스턴트입니다. 시설이나 숙박, 요금 등 무엇이든 편하게 문의해 주세요.",
+        ];
+        return isset($map[$lang]) ? $map[$lang] : '';
+    }
+
+    /**
      * ページ言語に応じたヘッダータイトルを返す。
      * 言語別設定が空なら共通のmyz_chatbot_header_textへフォールバック（後方互換）。
      */
-    private function get_header_text() {
-        $lang = $this->detect_lang();
+    private function get_header_text($lang = null) {
+        if ($lang === null) { $lang = $this->detect_lang(); }
         if ($lang !== 'ja') {
             $text = get_option('myz_chatbot_header_text_' . $lang, '');
             if (trim($text) !== '') {
+                return $text;
+            }
+            $text = $this->default_header_text($lang);
+            if ($text !== '') {
                 return $text;
             }
         }
@@ -1632,23 +1767,29 @@ class MYZ_AI_Chatbot {
      * ページ言語に応じた初期メッセージを返す。
      * 言語別設定が空ならenへ、それも空なら従来の共通メッセージへフォールバック（後方互換）。
      */
-    private function get_welcome_message() {
-        $lang = $this->detect_lang();
+    private function get_welcome_message($lang = null) {
+        if ($lang === null) { $lang = $this->detect_lang(); }
 
+        // 1) その言語の設定があればそれを使う
         $msg = get_option('myz_chatbot_welcome_message_' . $lang, '');
         if (trim($msg) !== '') {
             return $msg;
         }
 
-        // 用意のない言語は英語にフォールバック
-        if ($lang !== 'en') {
+        // 2) 中国語・韓国語は未設定なら組み込みの同言語メッセージを使う
+        //    （共通メッセージは日本語＋英語なので、そのまま出すと言語が合わない）
+        if ($lang === 'zh' || $lang === 'ko') {
+            $msg = $this->default_welcome_message($lang);
+            if ($msg !== '') {
+                return $msg;
+            }
             $msg = get_option('myz_chatbot_welcome_message_en', '');
-            if ($lang !== 'ja' && trim($msg) !== '') {
+            if (trim($msg) !== '') {
                 return $msg;
             }
         }
 
-        // 従来どおりの共通メッセージ（言語別設定が未使用のサイト向け）
+        // 3) 従来どおりの共通メッセージ（言語別設定が未使用のサイト向け）
         $default_welcome = "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else.";
         return get_option('myz_chatbot_welcome_message', $default_welcome);
     }
@@ -1659,9 +1800,33 @@ class MYZ_AI_Chatbot {
     public function render_standalone_page() {
         if (!get_query_var('myz_chatbot_standalone')) return;
 
+        // このページはURLに言語の手がかりが無いため、端末（スマホ）の言語設定で初期表示を決める
+        $this->standalone_context = true;
+        $lang = $this->detect_lang();
+        $ui = $this->get_ui_strings($lang);
+
+        // ページキャッシュ対策: 全言語ぶんのテキストを埋め込み、ブラウザ側でも navigator.language で確定させる
+        $i18n = [];
+        foreach ($this->supported_langs() as $l) {
+            $l_ui = $this->get_ui_strings($l);
+            $i18n[$l] = [
+                'htmlLang'    => $l_ui['html_lang'],
+                'title'       => $this->get_header_text($l),
+                'welcome'     => nl2br(esc_html($this->get_welcome_message($l))),
+                'placeholder' => $l_ui['placeholder'],
+                'send'        => $l_ui['send'],
+                'error'       => $l_ui['error'],
+                'netError'    => $l_ui['net_error'],
+            ];
+        }
+
+        if (!headers_sent()) {
+            header('Vary: Accept-Language');
+        }
+
         $primary_color = get_option('myz_chatbot_primary_color', '#159BBE');
         $text_color = get_option('myz_chatbot_text_color', '#ffffff');
-        $header_text = esc_html($this->get_header_text());
+        $header_text = esc_html($this->get_header_text($lang));
         $header_icon_key = get_option('myz_chatbot_header_icon', 'chat');
         $header_emoji_map = [
             'chat' => '💬', 'robot' => '🤖', 'operator' => '👩‍💼', 'house' => '🏠',
@@ -1669,7 +1834,7 @@ class MYZ_AI_Chatbot {
         ];
         $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
         $send_icon = get_option('myz_chatbot_send_icon', 'paper-plane');
-        $welcome_msg = nl2br(esc_html($this->get_welcome_message()));
+        $welcome_msg = nl2br(esc_html($this->get_welcome_message($lang)));
         $font_family = get_option('myz_chatbot_font_family', 'system');
         $font_weight = get_option('myz_chatbot_font_weight', '400');
         $font_size = get_option('myz_chatbot_font_size', '14');
@@ -1696,7 +1861,7 @@ class MYZ_AI_Chatbot {
         $send_svg = $send_icons[$send_icon] ?? $send_icons['paper-plane'];
 
         ?><!DOCTYPE html>
-<html lang="ja">
+<html lang="<?php echo esc_attr($ui['html_lang']); ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1827,8 +1992,8 @@ body {
     </div>
 </div>
 <div id="sa-input-area">
-    <input type="text" id="sa-input" placeholder="質問を入力してください..." autocomplete="off" />
-    <button id="sa-send" aria-label="送信"><?php echo $send_svg; ?></button>
+    <input type="text" id="sa-input" placeholder="<?php echo esc_attr($ui['placeholder']); ?>" autocomplete="off" />
+    <button id="sa-send" aria-label="<?php echo esc_attr($ui['send']); ?>"><?php echo $send_svg; ?></button>
 </div>
 <script>
 (function(){
@@ -1840,6 +2005,42 @@ body {
     var sessionId = 's_' + Date.now() + '_' + Math.random().toString(36).substr(2,8);
     var ajaxUrl = '<?php echo admin_url("admin-ajax.php"); ?>';
     var nonce = '<?php echo wp_create_nonce("myz_chatbot_nonce"); ?>';
+
+    // 端末の言語設定で初期表示を確定する（サーバー側判定＋ページキャッシュのズレを吸収）
+    var i18n = <?php echo wp_json_encode($i18n, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE); ?>;
+    var lang = <?php echo wp_json_encode($lang); ?>;
+
+    function pickLang(){
+        var tags = (navigator.languages && navigator.languages.length)
+            ? navigator.languages
+            : [navigator.language || navigator.userLanguage || ''];
+        for (var i = 0; i < tags.length; i++) {
+            var t = String(tags[i] || '').toLowerCase();
+            if (t.indexOf('zh') === 0) return 'zh';
+            if (t.indexOf('ko') === 0) return 'ko';
+            if (t.indexOf('en') === 0) return 'en';
+            if (t.indexOf('ja') === 0) return 'ja';
+        }
+        return '';
+    }
+
+    function applyLang(){
+        var q = (location.search.match(/[?&]lang=([^&]+)/) || [])[1];
+        var picked = q ? String(q).toLowerCase().slice(0, 2) : pickLang();
+        if (picked === 'zh' || picked === 'ko' || picked === 'en' || picked === 'ja') {
+            if (i18n[picked]) { lang = picked; }
+        }
+        var t = i18n[lang];
+        if (!t) return;
+        document.documentElement.lang = t.htmlLang;
+        var titleEl = document.querySelector('.sa-header-title');
+        if (titleEl) { titleEl.textContent = t.title; }
+        var firstMsg = messages.querySelector('.sa-msg.sa-bot .sa-msg-content');
+        if (firstMsg) { firstMsg.innerHTML = t.welcome; }
+        input.placeholder = t.placeholder;
+        sendBtn.setAttribute('aria-label', t.send);
+    }
+    applyLang();
 
     sendBtn.addEventListener('click', sendMessage);
     input.addEventListener('keydown', function(e){
@@ -1890,15 +2091,15 @@ body {
         var fd=new FormData();
         fd.append('action','myz_chat');fd.append('nonce',nonce);
         fd.append('message',text);fd.append('history',JSON.stringify(history.slice(-10)));
-        fd.append('session_id',sessionId);
+        fd.append('session_id',sessionId);fd.append('ui_lang',lang);
         fetch(ajaxUrl,{method:'POST',body:fd})
             .then(function(r){return r.json();})
             .then(function(data){
                 removeTyping();
                 if(data.success&&data.data.reply){appendMessage('bot',data.data.reply);history.push({role:'assistant',content:data.data.reply});}
-                else{appendMessage('bot',(data.data&&data.data.message)?data.data.message:'エラーが発生しました。');}
+                else{appendMessage('bot',(data.data&&data.data.message)?data.data.message:((i18n[lang]&&i18n[lang].error)||'エラーが発生しました。'));}
             })
-            .catch(function(){removeTyping();appendMessage('bot','通信エラーが発生しました。');})
+            .catch(function(){removeTyping();appendMessage('bot',(i18n[lang]&&i18n[lang].netError)||'通信エラーが発生しました。');})
             .finally(function(){isLoading=false;sendBtn.disabled=false;});
     }
 })();
@@ -2022,6 +2223,7 @@ body {
         $header_icon = $header_emoji_map[$header_icon_key] ?? '💬';
         $send_icon   = get_option('myz_chatbot_send_icon', 'paper-plane');
         $welcome_msg = nl2br(esc_html($this->get_welcome_message()));
+        $ui          = $this->get_ui_strings();
         ?>
         <div id="myz-chatbot-container">
             <div id="myz-chatbot-window" class="myz-hidden">
@@ -2041,9 +2243,9 @@ body {
                 </div>
                 <div id="myz-chatbot-input-area">
                     <input type="text" id="myz-chatbot-input"
-                           placeholder="質問を入力してください..."
+                           placeholder="<?php echo esc_attr($ui['placeholder']); ?>"
                            autocomplete="off" />
-                    <button id="myz-chatbot-send" aria-label="送信" title="送信">
+                    <button id="myz-chatbot-send" aria-label="<?php echo esc_attr($ui['send']); ?>" title="<?php echo esc_attr($ui['send']); ?>">
                         <?php echo $this->get_send_icon_svg($send_icon); ?>
                     </button>
                 </div>
