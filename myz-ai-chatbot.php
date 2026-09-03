@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.15.0
+ * Version: 5.15.1
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.15.0');
+define('MYZ_CHATBOT_VERSION', '5.15.1');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -24,6 +24,9 @@ class MYZ_AI_Chatbot {
 
     /** スタンドアロンページ描画中は true（端末言語による判定を有効にする） */
     private $standalone_context = false;
+
+    /** スタンドアロンページのURLスラグ既定値（空欄保存時もこれに寄せる） */
+    const DEFAULT_STANDALONE_SLUG = 'chatbot';
 
     const CATEGORIES = [
         '料金・費用'       => ['料金', '手数料', '費用', '価格', 'いくら', 'コスト', '月額', 'システム費', '契約金'],
@@ -71,6 +74,8 @@ class MYZ_AI_Chatbot {
         // スタンドアロンページ
         add_action('template_redirect', [$this, 'render_standalone_page']);
         add_action('init', [$this, 'add_rewrite_rules']);
+        add_action('wp_loaded', [$this, 'maybe_flush_rewrite_rules']);
+        add_action('admin_init', [$this, 'repair_standalone_slug']);
         add_filter('query_vars', [$this, 'add_query_vars']);
 
         register_activation_hook(__FILE__, [$this, 'on_activate']);
@@ -253,11 +258,16 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_zh', ['default' => '']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message_ko', ['default' => '']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_standalone_slug', [
-            'default' => 'chatbot',
+            'default' => self::DEFAULT_STANDALONE_SLUG,
             'sanitize_callback' => function($val) {
                 $val = sanitize_title($val);
-                // スラグ変更時にリライトルールをフラッシュ
-                flush_rewrite_rules();
+                // 空欄で保存されるとリライトルールが '^/?$'（サイトのトップ）に一致してしまうため既定値に戻す
+                if ($val === '') {
+                    $val = self::DEFAULT_STANDALONE_SLUG;
+                }
+                // ここでflushしても、この時点のルールは旧スラグで組まれているため効かない。
+                // フラグだけ立てて、新しいスラグでルールを組み直した次のリクエスト（wp_loaded）でflushする。
+                update_option('myz_chatbot_flush_needed', 1);
                 return $val;
             },
         ]);
@@ -1095,7 +1105,7 @@ class MYZ_AI_Chatbot {
                         <th scope="row">ページURL</th>
                         <td>
                             <?php
-                            $sa_slug = get_option('myz_chatbot_standalone_slug', 'chatbot');
+                            $sa_slug = $this->get_standalone_slug();
                             $sa_url = home_url('/' . $sa_slug . '/');
                             ?>
                             <code style="font-size:15px; padding:8px 12px; background:#f0f4f8; border-radius:6px; display:inline-block;">
@@ -1582,8 +1592,45 @@ class MYZ_AI_Chatbot {
      * リライトルール追加（/chatbot/ でアクセス可能に）
      */
     public function add_rewrite_rules() {
-        $slug = get_option('myz_chatbot_standalone_slug', 'chatbot');
+        $slug = $this->get_standalone_slug();
         add_rewrite_rule('^' . preg_quote($slug) . '/?$', 'index.php?myz_chatbot_standalone=1', 'top');
+    }
+
+    /**
+     * スタンドアロンページのURLスラグ。
+     * 空文字が保存されているとリライトルールが '^/?$'（サイトのトップ）に化けて
+     * トップページがチャット画面に乗っ取られるため、必ず既定値に寄せる。
+     */
+    public function get_standalone_slug() {
+        $slug = sanitize_title((string) get_option('myz_chatbot_standalone_slug', self::DEFAULT_STANDALONE_SLUG));
+        return $slug !== '' ? $slug : self::DEFAULT_STANDALONE_SLUG;
+    }
+
+    /**
+     * スラグ変更後のリライトルール再生成。
+     * init（add_rewrite_rules）が新しいスラグでルールを組んだ後に走る wp_loaded で実行する。
+     */
+    public function maybe_flush_rewrite_rules() {
+        if (!get_option('myz_chatbot_flush_needed')) {
+            return;
+        }
+        delete_option('myz_chatbot_flush_needed');
+        flush_rewrite_rules();
+    }
+
+    /**
+     * 空スラグが保存されている既存サイトの自己修復（管理画面アクセス時に1回だけ）。
+     * 空のままだと /（トップページ）がスタンドアロンページに乗っ取られる可能性がある。
+     */
+    public function repair_standalone_slug() {
+        $raw = get_option('myz_chatbot_standalone_slug', null);
+        if ($raw === null) {
+            return;
+        }
+        if (sanitize_title((string) $raw) === '') {
+            update_option('myz_chatbot_standalone_slug', self::DEFAULT_STANDALONE_SLUG);
+            update_option('myz_chatbot_flush_needed', 1);
+        }
     }
 
     public function add_query_vars($vars) {
