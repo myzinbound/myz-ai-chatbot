@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.17.0
+ * Version: 5.18.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.17.0');
+define('MYZ_CHATBOT_VERSION', '5.18.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -50,6 +50,9 @@ class MYZ_AI_Chatbot {
         // AJAX: チャット
         $api = new MYZ_Chatbot_API();
         $api->register_ajax();
+
+        // 固定ページが変わったらお問い合わせフォームURLの自動検出キャッシュを捨てる
+        add_action('save_post_page', [$this, 'clear_contact_url_cache']);
 
         // AJAX: 手動テーブル作成
         add_action('wp_ajax_myz_create_tables_manual', [$this, 'ajax_create_tables']);
@@ -233,6 +236,11 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_enabled', ['default' => '1']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_extra_instructions', [
             'default' => "プレーンテキストで回答してください。Markdownの記号（#, *, **など）は絶対に使わないでください。\n改行を適切に入れて読みやすくしてください。\n箇条書きには「・」を使ってください。\n回答は200文字以内を目安に簡潔にお願いします。",
+        ]);
+        // サイト内ウィジェットで問い合わせ先として案内するお問い合わせフォームのURL（空欄なら固定ページから自動検出）
+        register_setting('myz_chatbot_settings', 'myz_chatbot_contact_url', [
+            'default' => '',
+            'sanitize_callback' => 'esc_url_raw',
         ]);
         register_setting('myz_chatbot_settings', 'myz_chatbot_urls', [
             'sanitize_callback' => [$this, 'sanitize_urls'],
@@ -693,6 +701,20 @@ class MYZ_AI_Chatbot {
                             <textarea name="myz_chatbot_extra_instructions" rows="6" class="large-text"
                                 ><?php echo esc_textarea(get_option('myz_chatbot_extra_instructions', $default_instructions)); ?></textarea>
                             <p class="description">AIの回答スタイルについての指示。例：「敬語で回答」「料金の質問にはお問い合わせを促す」</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">お問い合わせフォームURL</th>
+                        <td>
+                            <?php $detected_contact = $this->detect_contact_url(); ?>
+                            <input type="url" name="myz_chatbot_contact_url" class="large-text"
+                                   value="<?php echo esc_attr(get_option('myz_chatbot_contact_url', '')); ?>"
+                                   placeholder="<?php echo esc_attr($detected_contact ?: home_url('/contact/')); ?>" />
+                            <p class="description">
+                                サイト内のチャットで問い合わせ先を案内するとき、メールアドレスの代わりにこのフォームへ誘導します。
+                                空欄なら固定ページから自動検出します<?php if ($detected_contact): ?>（現在の検出結果: <a href="<?php echo esc_url($detected_contact); ?>" target="_blank"><?php echo esc_html($detected_contact); ?></a>）<?php else: ?>（<strong style="color:#c00;">検出できませんでした。URLを入力してください</strong>）<?php endif; ?>。<br>
+                                客室QR（スタンドアロン）ページはこの設定に関係なく「ご予約いただいたサイトのメッセージ」へ誘導します。
+                            </p>
                         </td>
                     </tr>
                 </table>
@@ -1594,6 +1616,75 @@ class MYZ_AI_Chatbot {
      * 空文字が保存されているとリライトルールが '^/?$'（サイトのトップ）に化けて
      * トップページがチャット画面に乗っ取られるため、必ず既定値に寄せる。
      */
+    /**
+     * サイト内ウィジェットで案内するお問い合わせフォームURL。
+     * 管理画面の設定が空なら固定ページ（スラグ・タイトル）から自動検出する。見つからなければ空文字。
+     * $lang を渡すと、その言語版のお問い合わせページ（/en-contact/ /tw-contact/ /ko-contact/ 等）を優先する。
+     */
+    public function get_contact_url($lang = '') {
+        $url = trim((string) get_option('myz_chatbot_contact_url', ''));
+        if ($url !== '') {
+            return $url;
+        }
+        return $this->detect_contact_url($lang);
+    }
+
+    public function detect_contact_url($lang = '') {
+        $lang = $this->normalize_lang((string) $lang);
+        $cache_key = 'myz_chatbot_contact_url_' . ($lang !== '' ? $lang : 'base');
+        $cached = get_transient($cache_key);
+        if (is_string($cached)) {
+            return $cached;
+        }
+
+        $base_slugs = ['contact', 'contact-us', 'inquiry', 'otoiawase', 'toiawase', 'お問い合わせ', 'お問合せ'];
+        $slugs = [];
+        if ($lang !== '' && $lang !== 'ja') {
+            // 多言語サイトの命名ゆれ: /en-contact/（接頭辞）, /contact-en/（接尾辞）, /en/contact/（Bogo）
+            $prefixes = ($lang === 'zh') ? ['tw', 'zh', 'cn'] : [$lang];
+            foreach ($prefixes as $pf) {
+                $slugs[] = $pf . '-contact';
+                $slugs[] = 'contact-' . $pf;
+                $slugs[] = $pf . '/contact';
+            }
+        }
+        $slugs = array_merge($slugs, $base_slugs);
+
+        $found = '';
+        foreach ($slugs as $slug) {
+            $page = get_page_by_path($slug, OBJECT, 'page');
+            if ($page && $page->post_status === 'publish') {
+                $found = get_permalink($page);
+                break;
+            }
+        }
+        // 次にタイトルにお問い合わせ/Contactを含む公開ページ
+        if ($found === '') {
+            $pages = get_posts([
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'posts_per_page' => 200,
+                'orderby' => 'menu_order',
+                'order' => 'ASC',
+                'fields' => 'ids',
+            ]);
+            foreach ($pages as $pid) {
+                if (preg_match('/お問い?合わ?せ|問合せ|contact/iu', get_the_title($pid))) {
+                    $found = get_permalink($pid);
+                    break;
+                }
+            }
+        }
+        set_transient($cache_key, $found, HOUR_IN_SECONDS);
+        return $found;
+    }
+
+    public function clear_contact_url_cache() {
+        foreach (['base', 'ja', 'en', 'zh', 'ko', 'it', 'de', 'fr', 'es'] as $k) {
+            delete_transient('myz_chatbot_contact_url_' . $k);
+        }
+    }
+
     public function get_standalone_slug() {
         $slug = sanitize_title((string) get_option('myz_chatbot_standalone_slug', self::DEFAULT_STANDALONE_SLUG));
         return $slug !== '' ? $slug : self::DEFAULT_STANDALONE_SLUG;
@@ -2253,6 +2344,8 @@ body {
             'primaryColor' => $primary_color,
             'textColor'    => $text_color,
             'position'     => $position,
+            // ページの言語（AIに言語別のお問い合わせページを案内させるため）
+            'pageLang'     => $this->detect_lang(),
         ]);
 
         // CSSカスタムプロパティでテーマカラー、文字色、フォント、位置を注入
@@ -2375,4 +2468,12 @@ body {
     }
 }
 
-new MYZ_AI_Chatbot();
+$GLOBALS['myz_ai_chatbot'] = new MYZ_AI_Chatbot();
+
+/**
+ * サイト内ウィジェットで案内するお問い合わせフォームURL（設定 or 自動検出）。無ければ空文字。
+ */
+function myz_chatbot_contact_url($lang = '') {
+    $plugin = $GLOBALS['myz_ai_chatbot'] ?? null;
+    return ($plugin instanceof MYZ_AI_Chatbot) ? $plugin->get_contact_url($lang) : '';
+}

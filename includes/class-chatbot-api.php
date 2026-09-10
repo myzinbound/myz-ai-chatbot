@@ -24,6 +24,9 @@ class MYZ_Chatbot_API {
         $ui_lang = in_array($ui_lang, ['ja', 'en', 'zh', 'ko', 'it', 'de', 'fr', 'es'], true) ? $ui_lang : '';
         // スタンドアロン（客室QR）ページからの質問か。問い合わせ先の案内を切り替える
         $standalone = !empty($_POST['standalone']) && $_POST['standalone'] === '1';
+        // サイト内ウィジェット: 表示中ページの言語（言語別のお問い合わせページを案内するため）
+        $page_lang = isset($_POST['page_lang']) ? sanitize_text_field(wp_unslash($_POST['page_lang'])) : '';
+        $page_lang = in_array($page_lang, ['ja', 'en', 'zh', 'ko', 'it', 'de', 'fr', 'es'], true) ? $page_lang : '';
 
         if (empty($message)) {
             wp_send_json_error(['message' => '質問を入力してください。']);
@@ -70,7 +73,7 @@ class MYZ_Chatbot_API {
         ];
 
         // システムプロンプトを構築（画面の表示言語をヒントとして渡す）
-        $system_prompt = $this->build_system_prompt($ui_lang, $standalone);
+        $system_prompt = $this->build_system_prompt($ui_lang, $standalone, $page_lang);
 
         // プロバイダー別にAPI呼び出し
         switch ($provider) {
@@ -121,7 +124,7 @@ class MYZ_Chatbot_API {
     /**
      * システムプロンプトを構築
      */
-    private function build_system_prompt($ui_lang = '', $standalone = false) {
+    private function build_system_prompt($ui_lang = '', $standalone = false, $page_lang = '') {
         $db_knowledge = MYZ_Chatbot_Scraper::get_knowledge_from_db();
         if (!empty($db_knowledge)) {
             $system_prompt = "あなたはマイズインバウンド株式会社のAIアシスタントです。\n以下のサイト情報をもとに、お客様からの質問に丁寧に回答してください。\n必ず質問された言語と同じ言語で回答してください（日本語の質問には日本語、英語には英語、中国語には中国語、韓国語には韓国語で回答）。\nわからない場合も質問と同じ言語で「お問い合わせください」と案内してください（例：英語なら \"Please contact us for more details.\"、中国語なら \"请联系我们了解更多详情。\"）。\n\n" . $db_knowledge;
@@ -175,6 +178,20 @@ class MYZ_Chatbot_API {
                 . "・公式サイトから直接予約したゲストの場合は、予約確認メールに記載の連絡先へ、と補足してください。\n"
                 . "・電話番号がサイト情報にある場合は、急ぎの用件向けの連絡先として併記して構いません。\n"
                 . "・案内は利用者と同じ言語で行ってください（例: 英語なら \"Please contact us through the messaging feature of the site where you made your booking (e.g. Booking.com, Airbnb).\"）。\n";
+        } else {
+            // サイト内ウィジェット: 問い合わせ先はメールアドレスでなく、そのサイトのお問い合わせフォームへ誘導する。
+            // サイト情報（スクレイプ結果）や追加指示にメールアドレスが含まれていても本文に出さない。
+            $contact_url = function_exists('myz_chatbot_contact_url') ? myz_chatbot_contact_url($page_lang) : '';
+            $system_prompt .= "\n\n【最優先: この利用者への連絡先案内ルール】\n"
+                . "・問い合わせ先を案内するときは、メールアドレスは絶対に案内しないでください（サイト情報や上の回答ルールにメールアドレスが書かれていても、本文に書かないでください）。\n";
+            if ($contact_url !== '') {
+                $system_prompt .= "・代わりに、このサイトのお問い合わせフォームへ誘導してください。URLは必ずこの通りに書いてください: " . $contact_url . "\n";
+            } else {
+                $system_prompt .= "・代わりに「当サイトのお問い合わせフォーム」へ誘導してください。\n";
+            }
+            $system_prompt .= "・公式LINEがサイト情報にある場合は、お問い合わせフォームと併記して構いません。\n"
+                . "・電話番号がサイト情報にある場合は、急ぎの用件向けの連絡先として併記して構いません。\n"
+                . "・案内は利用者と同じ言語で行ってください（例: 英語なら \"Please contact us via the inquiry form on this website.\" のように、フォームのURLを添えて）。\n";
         }
 
         return $system_prompt;

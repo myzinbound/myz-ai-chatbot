@@ -103,6 +103,7 @@
         formData.append('message', text);
         formData.append('history', JSON.stringify(history.slice(-10)));
         formData.append('session_id', sessionId);
+        formData.append('page_lang', myzChatbot.pageLang || '');
 
         fetch(myzChatbot.ajaxUrl, {
             method: 'POST',
