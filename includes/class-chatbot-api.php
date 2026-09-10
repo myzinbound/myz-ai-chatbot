@@ -100,6 +100,10 @@ class MYZ_Chatbot_API {
         // Markdown記号をサーバー側でも除去（二重対策）
         $reply = $this->strip_markdown($reply);
 
+        // メールアドレスは全モード（サイト内ウィジェット・スタンドアロン）で案内しない。
+        // プロンプトで禁止していてもナレッジに含まれると出てしまうことがあるため、返答から機械的に除去する
+        $reply = $this->strip_email_addresses($reply);
+
         // 会話をDBに保存
         $this->save_log($session_id, $message, $reply, $ip);
 
@@ -140,7 +144,8 @@ class MYZ_Chatbot_API {
             . "・強調したい場合は【】や「」で囲んでください。例：【料金プラン】\n"
             . "・箇条書きには「・」を使ってください。\n"
             . "・改行を適切に使って読みやすくしてください。\n"
-            . "・質問された言語と同じ言語で必ず回答してください。「わからない」「お問い合わせください」という回答も含め、すべての回答を質問と同じ言語で行ってください。日本語以外の言語で日本語を混ぜることは絶対にしないでください。\n";
+            . "・質問された言語と同じ言語で必ず回答してください。「わからない」「お問い合わせください」という回答も含め、すべての回答を質問と同じ言語で行ってください。日本語以外の言語で日本語を混ぜることは絶対にしないでください。\n"
+            . "・メールアドレスは絶対に回答に書かないでください（サイト情報に載っていても書かない）。連絡先は下の連絡先案内ルールに従ってください。\n";
         $system_prompt .= $format_rules;
 
         // 画面の表示言語（端末の言語設定）を回答言語のヒントにする
@@ -367,6 +372,42 @@ class MYZ_Chatbot_API {
     /**
      * Markdown記号を除去してプレーンテキストに変換
      */
+    /**
+     * 返答からメールアドレスを取り除く（全モード共通の最終ガード）。
+     * 「・メール: xxx@yyy」のようにメールアドレスだけの行は行ごと削除し、
+     * 文中に混ざっている場合はアドレスだけを消して前後を詰める。
+     */
+    private function strip_email_addresses($text) {
+        $email_re = '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}';
+        if (!preg_match('/' . $email_re . '/u', $text)) {
+            return $text;
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $text);
+        $out = [];
+        foreach ($lines as $line) {
+            if (!preg_match('/' . $email_re . '/u', $line)) {
+                $out[] = $line;
+                continue;
+            }
+            // ラベル＋アドレスだけの行（例「・メール：support@example.com」「Email: a@b.com」）は行ごと削除
+            $stripped = preg_replace('/' . $email_re . '/u', '', $line);
+            $stripped = preg_replace('/[\s・\-–—:：()（）\[\]【】「」<>＜＞,、。]+/u', ' ', $stripped);
+            $stripped = trim($stripped);
+            if ($stripped === '' || preg_match('/^(メール|メールアドレス|e-?mail|email address|mail|电子邮件|電子郵件|郵件|이메일|メールにて|メールで)$/iu', $stripped)) {
+                continue;
+            }
+            // 文中に混ざっている場合はアドレスとその前後の括弧・区切りだけを消し、
+            // 「LINEまたは です」のように浮いた接続詞を詰める
+            $line = preg_replace('#\s*[（(<＜「]?\s*' . $email_re . '\s*[）)>＞」]?#u', '', $line);
+            $line = preg_replace('#(または|もしくは|、|,|/|\bor\b|\band\b)\s*(?=(です|まで|に|へ|で|を|。|、|\.|,|$))#u', '', $line);
+            $line = preg_replace('#\s{2,}#u', ' ', $line);
+            $out[] = rtrim($line);
+        }
+        $text = implode("\n", $out);
+        // 行を消したことで3連続以上になった空行を詰める
+        return preg_replace("/\n{3,}/", "\n\n", $text);
+    }
+
     private function strip_markdown($text) {
         $text = preg_replace('/<\/?(?:strong|em|b|i|br\s*\/?)>/i', '', $text);
         $text = preg_replace('/^#{1,6}\s+/m', '', $text);
