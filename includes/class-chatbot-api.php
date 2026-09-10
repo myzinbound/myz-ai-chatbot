@@ -21,7 +21,7 @@ class MYZ_Chatbot_API {
         $history = isset($_POST['history']) ? json_decode(wp_unslash($_POST['history']), true) : [];
         $session_id = isset($_POST['session_id']) ? sanitize_text_field(wp_unslash($_POST['session_id'])) : '';
         $ui_lang = isset($_POST['ui_lang']) ? sanitize_text_field(wp_unslash($_POST['ui_lang'])) : '';
-        $ui_lang = in_array($ui_lang, ['ja', 'en', 'zh', 'ko'], true) ? $ui_lang : '';
+        $ui_lang = in_array($ui_lang, ['ja', 'en', 'zh', 'ko', 'it', 'de', 'fr', 'es'], true) ? $ui_lang : '';
 
         if (empty($message)) {
             wp_send_json_error(['message' => '質問を入力してください。']);
@@ -142,8 +142,12 @@ class MYZ_Chatbot_API {
         $lang_names = [
             'ja' => '日本語',
             'en' => '英語',
-            'zh' => '中国語',
+            'zh' => '中国語（繁体字）',
             'ko' => '韓国語',
+            'it' => 'イタリア語',
+            'de' => 'ドイツ語',
+            'fr' => 'フランス語',
+            'es' => 'スペイン語',
         ];
         if ($ui_lang !== '' && isset($lang_names[$ui_lang])) {
             $system_prompt .= "\n\n【この利用者の画面表示言語】\n"
