@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.16.1
+ * Version: 5.17.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.16.1');
+define('MYZ_CHATBOT_VERSION', '5.17.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -2205,7 +2205,7 @@ body {
         var fd=new FormData();
         fd.append('action','myz_chat');fd.append('nonce',nonce);
         fd.append('message',text);fd.append('history',JSON.stringify(history.slice(-10)));
-        fd.append('session_id',sessionId);fd.append('ui_lang',lang);
+        fd.append('session_id',sessionId);fd.append('ui_lang',lang);fd.append('standalone','1');
         fetch(ajaxUrl,{method:'POST',body:fd})
             .then(function(r){return r.json();})
             .then(function(data){

@@ -22,6 +22,8 @@ class MYZ_Chatbot_API {
         $session_id = isset($_POST['session_id']) ? sanitize_text_field(wp_unslash($_POST['session_id'])) : '';
         $ui_lang = isset($_POST['ui_lang']) ? sanitize_text_field(wp_unslash($_POST['ui_lang'])) : '';
         $ui_lang = in_array($ui_lang, ['ja', 'en', 'zh', 'ko', 'it', 'de', 'fr', 'es'], true) ? $ui_lang : '';
+        // スタンドアロン（客室QR）ページからの質問か。問い合わせ先の案内を切り替える
+        $standalone = !empty($_POST['standalone']) && $_POST['standalone'] === '1';
 
         if (empty($message)) {
             wp_send_json_error(['message' => '質問を入力してください。']);
@@ -68,7 +70,7 @@ class MYZ_Chatbot_API {
         ];
 
         // システムプロンプトを構築（画面の表示言語をヒントとして渡す）
-        $system_prompt = $this->build_system_prompt($ui_lang);
+        $system_prompt = $this->build_system_prompt($ui_lang, $standalone);
 
         // プロバイダー別にAPI呼び出し
         switch ($provider) {
@@ -119,7 +121,7 @@ class MYZ_Chatbot_API {
     /**
      * システムプロンプトを構築
      */
-    private function build_system_prompt($ui_lang = '') {
+    private function build_system_prompt($ui_lang = '', $standalone = false) {
         $db_knowledge = MYZ_Chatbot_Scraper::get_knowledge_from_db();
         if (!empty($db_knowledge)) {
             $system_prompt = "あなたはマイズインバウンド株式会社のAIアシスタントです。\n以下のサイト情報をもとに、お客様からの質問に丁寧に回答してください。\n必ず質問された言語と同じ言語で回答してください（日本語の質問には日本語、英語には英語、中国語には中国語、韓国語には韓国語で回答）。\nわからない場合も質問と同じ言語で「お問い合わせください」と案内してください（例：英語なら \"Please contact us for more details.\"、中国語なら \"请联系我们了解更多详情。\"）。\n\n" . $db_knowledge;
@@ -160,6 +162,19 @@ class MYZ_Chatbot_API {
         $extra = get_option('myz_chatbot_extra_instructions', '');
         if (!empty($extra)) {
             $system_prompt .= "\n\n【その他の回答ルール】\n" . $extra;
+        }
+
+        // スタンドアロン（客室QR）ページ: 利用者は予約済み・滞在中のゲストなので、
+        // 問い合わせフォームやLINEでなく「予約したサイトのメッセージ」へ誘導する。
+        // 管理画面の追加指示（フォーム/LINE案内）より優先させるため最後に付ける。
+        if ($standalone) {
+            $system_prompt .= "\n\n【最優先: この利用者への連絡先案内ルール】\n"
+                . "・この利用者は客室や館内に掲示されたQRコードからこのチャットを開いています。つまり既に予約済み、または滞在中のゲストです。\n"
+                . "・問い合わせ先を案内するときは、お問い合わせフォーム・公式LINE・メールアドレスは案内しないでください（上の回答ルールにそれらが書かれていても、この利用者には使いません）。\n"
+                . "・代わりに「ご予約いただいたサイト（Booking.com、Airbnb、楽天トラベル、じゃらん等）のメッセージ機能から宿へご連絡ください」と案内してください。「OTA」という言葉は使わず、必ず『ご予約いただいたサイトのメッセージ』のような分かりやすい言い方にしてください。\n"
+                . "・公式サイトから直接予約したゲストの場合は、予約確認メールに記載の連絡先へ、と補足してください。\n"
+                . "・電話番号がサイト情報にある場合は、急ぎの用件向けの連絡先として併記して構いません。\n"
+                . "・案内は利用者と同じ言語で行ってください（例: 英語なら \"Please contact us through the messaging feature of the site where you made your booking (e.g. Booking.com, Airbnb).\"）。\n";
         }
 
         return $system_prompt;
