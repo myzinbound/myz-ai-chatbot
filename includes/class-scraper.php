@@ -246,6 +246,15 @@ class MYZ_Chatbot_Scraper {
             $count++;
         }
 
+        // 学習対象URLから外されたページの古い内容を消す（外してもDBに残り続けていた）
+        $keep = array_values(array_filter(array_map('trim', (array) $urls)));
+        $url_rows = $wpdb->get_results("SELECT id, url FROM $table WHERE source_type = 'url' OR source_type = ''");
+        foreach ($url_rows as $row) {
+            if (!in_array($row->url, $keep, true)) {
+                $wpdb->delete($table, ['id' => $row->id], ['%d']);
+            }
+        }
+
         update_option('myz_chatbot_last_scraped', current_time('mysql'));
         return $count;
     }
