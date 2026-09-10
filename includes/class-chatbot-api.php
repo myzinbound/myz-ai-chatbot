@@ -190,7 +190,6 @@ class MYZ_Chatbot_API {
                 $system_prompt .= "・代わりに「当サイトのお問い合わせフォーム」へ誘導してください。\n";
             }
             $system_prompt .= "・公式LINEがサイト情報にある場合は、お問い合わせフォームと併記して構いません。\n"
-                . "・電話番号がサイト情報にある場合は、急ぎの用件向けの連絡先として併記して構いません。\n"
                 . "・案内は利用者と同じ言語で行ってください（例: 英語なら \"Please contact us via the inquiry form on this website.\" のように、フォームのURLを添えて）。\n";
         }
 
