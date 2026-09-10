@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.19.0
+ * Version: 5.20.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.19.0');
+define('MYZ_CHATBOT_VERSION', '5.20.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -66,6 +66,10 @@ class MYZ_AI_Chatbot {
 
         // AJAX: 更新チェック
         add_action('wp_ajax_myz_check_update', [$this, 'ajax_check_update']);
+
+        // 外部同期（宿シート等の自動投入）: 同期トークンで認証するのでログイン不要
+        add_action('wp_ajax_nopriv_myz_sync_knowledge', [$this, 'ajax_sync_knowledge']);
+        add_action('wp_ajax_myz_sync_knowledge', [$this, 'ajax_sync_knowledge']);
 
         // Cron
         add_action('myz_chatbot_scrape_cron', [$this, 'run_cron_scrape']);
@@ -246,6 +250,14 @@ class MYZ_AI_Chatbot {
             'sanitize_callback' => [$this, 'sanitize_urls'],
         ]);
         register_setting('myz_chatbot_settings', 'myz_chatbot_scrape_frequency', ['default' => 'weekly']);
+        // 外部同期トークン（空で保存されたら自動生成に戻す）
+        register_setting('myz_chatbot_settings', 'myz_chatbot_sync_token', [
+            'default' => '',
+            'sanitize_callback' => function($val) {
+                $val = preg_replace('/[^A-Za-z0-9]/', '', (string) $val);
+                return strlen($val) >= 24 ? $val : wp_generate_password(40, false, false);
+            },
+        ]);
 
         // UI設定
         register_setting('myz_chatbot_settings', 'myz_chatbot_toggle_text', ['default' => 'AIに質問']);
@@ -493,6 +505,84 @@ class MYZ_AI_Chatbot {
             'truncated' => !empty($parsed['truncated']),
             'updated'   => current_time('Y/m/d H:i'),
         ]);
+    }
+
+    /**
+     * 外部同期トークン（未設定なら生成して保存）
+     */
+    public function get_sync_token() {
+        $token = (string) get_option('myz_chatbot_sync_token', '');
+        if (strlen($token) < 24) {
+            $token = wp_generate_password(40, false, false);
+            update_option('myz_chatbot_sync_token', $token);
+        }
+        return $token;
+    }
+
+    /**
+     * 学習ファイル 外部同期 AJAX（ログイン不要・トークン認証）
+     * 同名(filename)の学習ファイルがあれば内容を置き換え、無ければ追加する。
+     */
+    public function ajax_sync_knowledge() {
+        $token = isset($_POST['token']) ? (string) wp_unslash($_POST['token']) : '';
+        $expected = (string) get_option('myz_chatbot_sync_token', '');
+        if (strlen($expected) < 24 || !hash_equals($expected, $token)) {
+            status_header(403);
+            wp_send_json_error(['message' => 'トークンが一致しません。']);
+        }
+
+        $filename = isset($_POST['filename']) ? sanitize_file_name(wp_unslash($_POST['filename'])) : '';
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if ($filename === '' || !in_array($ext, ['txt', 'md', 'markdown'], true)) {
+            wp_send_json_error(['message' => 'filename は .txt / .md のみ対応です。']);
+        }
+        $content = isset($_POST['content']) ? (string) wp_unslash($_POST['content']) : '';
+        $content = str_replace("\r\n", "\n", $content);
+        if (trim($content) === '') {
+            wp_send_json_error(['message' => 'content が空です。']);
+        }
+        if (strlen($content) > 512 * 1024) {
+            wp_send_json_error(['message' => 'content が大きすぎます（512KB以内）。']);
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'myz_knowledge';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, content FROM $table WHERE source_type = 'file' AND filename = %s ORDER BY id ASC", $filename
+        ));
+        $now = current_time('mysql');
+        $size = strlen($content);
+
+        if (!empty($rows)) {
+            $first = array_shift($rows);
+            // 重複（同名が複数）は最初の1件に寄せる
+            foreach ($rows as $dup) {
+                $wpdb->delete($table, ['id' => $dup->id], ['%d']);
+            }
+            if ($first->content === $content) {
+                wp_send_json_success(['result' => 'unchanged', 'id' => (int) $first->id, 'chars' => mb_strlen($content)]);
+            }
+            $ok = $wpdb->update($table,
+                ['content' => $content, 'file_size' => $size, 'updated_at' => $now],
+                ['id' => $first->id], ['%s', '%d', '%s'], ['%d']);
+            if ($ok === false) {
+                wp_send_json_error(['message' => 'DB更新に失敗: ' . $wpdb->last_error]);
+            }
+            wp_send_json_success(['result' => 'updated', 'id' => (int) $first->id, 'chars' => mb_strlen($content)]);
+        }
+
+        $ok = $wpdb->insert($table, [
+            'url'         => 'sync://' . $filename,
+            'source_type' => 'file',
+            'filename'    => $filename,
+            'file_size'   => $size,
+            'content'     => $content,
+            'updated_at'  => $now,
+        ], ['%s', '%s', '%s', '%d', '%s', '%s']);
+        if ($ok === false) {
+            wp_send_json_error(['message' => 'DB保存に失敗: ' . $wpdb->last_error]);
+        }
+        wp_send_json_success(['result' => 'inserted', 'id' => (int) $wpdb->insert_id, 'chars' => mb_strlen($content)]);
     }
 
     /**
@@ -1110,6 +1200,19 @@ class MYZ_AI_Chatbot {
                                 <?php endforeach; endif; ?>
                                 </tbody>
                             </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">外部同期トークン</th>
+                        <td>
+                            <input type="text" name="myz_chatbot_sync_token" class="regular-text code"
+                                   value="<?php echo esc_attr($this->get_sync_token()); ?>" />
+                            <p class="description">
+                                外部のジョブ（宿シートの自動投入など）が学習ファイルをログインなしで更新するための合言葉。<br>
+                                <code>POST <?php echo esc_html(admin_url('admin-ajax.php')); ?></code>
+                                に <code>action=myz_sync_knowledge</code> / <code>token</code> / <code>filename</code>（.txt/.md）/ <code>content</code> を送ると、同名の学習ファイルを置き換えます（無ければ追加）。
+                                空にして保存すると新しいトークンを自動生成します。
+                            </p>
                         </td>
                     </tr>
                 </table>
