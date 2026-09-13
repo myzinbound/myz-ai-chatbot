@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.20.3
+ * Version: 5.20.4
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.20.3');
+define('MYZ_CHATBOT_VERSION', '5.20.4');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -80,8 +80,8 @@ class MYZ_AI_Chatbot {
 
         // スタンドアロンページ
         add_action('template_redirect', [$this, 'render_standalone_page']);
-        // WP Fastest Cache は DONOTCACHEPAGE を無視するので、専用フィルタで客室QRページをキャッシュ対象外にする
-        add_filter('wpfc_exclude_current_page', [$this, 'exclude_standalone_from_wpfc']);
+        // WP Fastest Cache は DONOTCACHEPAGE を無視するので、WPFCの除外ルール（WpFastestCacheExclude）に客室QRページを自動登録する
+        add_action('admin_init', [$this, 'ensure_wpfc_exclusion']);
         add_action('init', [$this, 'add_rewrite_rules']);
         add_action('wp_loaded', [$this, 'maybe_flush_rewrite_rules']);
         add_action('admin_init', [$this, 'repair_standalone_slug']);
@@ -2094,8 +2094,27 @@ class MYZ_AI_Chatbot {
     /**
      * スタンドアロンページの表示
      */
-    public function exclude_standalone_from_wpfc($exclude) {
-        return get_query_var('myz_chatbot_standalone') ? true : $exclude;
+    /**
+     * WP Fastest Cache の除外ルールに客室QR（スタンドアロン）ページを登録する。
+     * HTMLに埋め込むnonceは12〜24hで失効するため、ページキャッシュされると全問エラーになる。
+     * WPFCは DONOTCACHEPAGE を無視する（Wordfence/Divi等の特例のみ）ので、option直書きで除外する。
+     */
+    public function ensure_wpfc_exclusion() {
+        if (!function_exists('is_plugin_active')) require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        if (!is_plugin_active('wp-fastest-cache/wpFastestCache.php')) return;
+
+        $path = wp_parse_url(home_url('/' . $this->get_standalone_slug() . '/'), PHP_URL_PATH);
+        if (!$path) return;
+        $regex = '^' . preg_quote($path, '/') . '?$';
+
+        $raw = get_option('WpFastestCacheExclude', '');
+        $rules = $raw ? json_decode($raw, true) : [];
+        if (!is_array($rules)) $rules = [];
+        foreach ($rules as $r) {
+            if (is_array($r) && ($r['content'] ?? '') === $regex) return;
+        }
+        $rules[] = ['prefix' => 'regex', 'content' => $regex, 'type' => 'page'];
+        update_option('WpFastestCacheExclude', wp_json_encode($rules));
     }
 
     public function render_standalone_page() {
