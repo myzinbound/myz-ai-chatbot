@@ -97,26 +97,34 @@
         isLoading = true;
         sendBtn.disabled = true;
 
-        const formData = new FormData();
-        formData.append('action', 'myz_chat');
-        formData.append('nonce', myzChatbot.nonce);
-        formData.append('message', text);
-        formData.append('history', JSON.stringify(history.slice(-10)));
-        formData.append('session_id', sessionId);
-        formData.append('page_lang', myzChatbot.pageLang || '');
+        // ページキャッシュで古いnonceが配られた場合、サーバーが新しいnonceを返すので1回だけ再送する
+        function postChat(retried) {
+            const formData = new FormData();
+            formData.append('action', 'myz_chat');
+            formData.append('nonce', myzChatbot.nonce);
+            formData.append('message', text);
+            formData.append('history', JSON.stringify(history.slice(-11, -1)));
+            formData.append('session_id', sessionId);
+            formData.append('page_lang', myzChatbot.pageLang || '');
+            return fetch(myzChatbot.ajaxUrl, { method: 'POST', body: formData })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!retried && data && data.success === false && data.data && data.data.code === 'bad_nonce' && data.data.nonce) {
+                        myzChatbot.nonce = data.data.nonce;
+                        return postChat(true);
+                    }
+                    return data;
+                });
+        }
 
-        fetch(myzChatbot.ajaxUrl, {
-            method: 'POST',
-            body: formData,
-        })
-            .then(function (res) { return res.json(); })
+        postChat(false)
             .then(function (data) {
                 removeTyping();
-                if (data.success && data.data.reply) {
+                if (data && data.success && data.data.reply) {
                     appendMessage('bot', data.data.reply);
                     history.push({ role: 'assistant', content: data.data.reply });
                 } else {
-                    var errorMsg = (data.data && data.data.message)
+                    var errorMsg = (data && data.data && data.data.message)
                         ? data.data.message
                         : '申し訳ございません。エラーが発生しました。';
                     appendMessage('bot', errorMsg);

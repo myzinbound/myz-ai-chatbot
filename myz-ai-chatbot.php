@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.20.1
+ * Version: 5.20.2
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.20.1');
+define('MYZ_CHATBOT_VERSION', '5.20.2');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -2095,6 +2095,12 @@ class MYZ_AI_Chatbot {
     public function render_standalone_page() {
         if (!get_query_var('myz_chatbot_standalone')) return;
 
+        // ページキャッシュ禁止: HTMLに埋め込むnonceは12〜24時間で失効するため、
+        // キャッシュプラグイン（WP Fastest Cache等）が古いコピーを配ると全問「エラーが発生しました。」になる
+        if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
+        if (!defined('DONOTMINIFY')) define('DONOTMINIFY', true);
+        if (!headers_sent()) nocache_headers();
+
         // このページはURLに言語の手がかりが無いため、端末（スマホ）の言語設定で初期表示を決める
         $this->standalone_context = true;
         $lang = $this->detect_lang();
@@ -2392,20 +2398,32 @@ body {
 
     function removeTyping(){var e=document.getElementById('sa-typing');if(e)e.remove();}
 
+    // ページキャッシュで古いnonceが配られた場合、サーバーが新しいnonceを返すので1回だけ再送する
+    function postChat(text, retried){
+        var fd=new FormData();
+        fd.append('action','myz_chat');fd.append('nonce',nonce);
+        fd.append('message',text);fd.append('history',JSON.stringify(history.slice(-11,-1)));
+        fd.append('session_id',sessionId);fd.append('ui_lang',lang);fd.append('standalone','1');
+        return fetch(ajaxUrl,{method:'POST',body:fd})
+            .then(function(r){return r.json();})
+            .then(function(data){
+                if(!retried&&data&&data.success===false&&data.data&&data.data.code==='bad_nonce'&&data.data.nonce){
+                    nonce=data.data.nonce;
+                    return postChat(text,true);
+                }
+                return data;
+            });
+    }
+
     function sendMessage(){
         var text=input.value.trim();if(!text||isLoading)return;
         appendMessage('user',text);history.push({role:'user',content:text});input.value='';
         showTyping();isLoading=true;sendBtn.disabled=true;
-        var fd=new FormData();
-        fd.append('action','myz_chat');fd.append('nonce',nonce);
-        fd.append('message',text);fd.append('history',JSON.stringify(history.slice(-10)));
-        fd.append('session_id',sessionId);fd.append('ui_lang',lang);fd.append('standalone','1');
-        fetch(ajaxUrl,{method:'POST',body:fd})
-            .then(function(r){return r.json();})
+        postChat(text,false)
             .then(function(data){
                 removeTyping();
-                if(data.success&&data.data.reply){appendMessage('bot',data.data.reply);history.push({role:'assistant',content:data.data.reply});}
-                else{appendMessage('bot',(data.data&&data.data.message)?data.data.message:((i18n[lang]&&i18n[lang].error)||'エラーが発生しました。'));}
+                if(data&&data.success&&data.data.reply){appendMessage('bot',data.data.reply);history.push({role:'assistant',content:data.data.reply});}
+                else{appendMessage('bot',(data&&data.data&&data.data.message)?data.data.message:((i18n[lang]&&i18n[lang].error)||'エラーが発生しました。'));}
             })
             .catch(function(){removeTyping();appendMessage('bot',(i18n[lang]&&i18n[lang].netError)||'通信エラーが発生しました。');})
             .finally(function(){isLoading=false;sendBtn.disabled=false;});

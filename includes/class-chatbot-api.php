@@ -15,7 +15,17 @@ class MYZ_Chatbot_API {
     }
 
     public function handle_chat() {
-        check_ajax_referer('myz_chatbot_nonce', 'nonce');
+        // nonce検証。ページキャッシュで古いnonce（12〜24hで失効）が配られた場合は、
+        // 「-1」で黙って落とさず新しいnonceを返してクライアントに1回だけ再送させる
+        // （JSONは同一オリジンからしか読めないのでCSRF対策としての意味は保たれる）
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'myz_chatbot_nonce')) {
+            wp_send_json_error([
+                'code'    => 'bad_nonce',
+                'nonce'   => wp_create_nonce('myz_chatbot_nonce'),
+                'message' => 'セッションの有効期限が切れました。ページを再読み込みしてからもう一度お試しください。',
+            ], 403);
+        }
 
         $message = isset($_POST['message']) ? sanitize_text_field(wp_unslash($_POST['message'])) : '';
         $history = isset($_POST['history']) ? json_decode(wp_unslash($_POST['history']), true) : [];
