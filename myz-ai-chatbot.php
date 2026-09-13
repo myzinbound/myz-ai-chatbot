@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.20.2
+ * Version: 5.20.3
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.20.2');
+define('MYZ_CHATBOT_VERSION', '5.20.3');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -80,6 +80,8 @@ class MYZ_AI_Chatbot {
 
         // スタンドアロンページ
         add_action('template_redirect', [$this, 'render_standalone_page']);
+        // WP Fastest Cache は DONOTCACHEPAGE を無視するので、専用フィルタで客室QRページをキャッシュ対象外にする
+        add_filter('wpfc_exclude_current_page', [$this, 'exclude_standalone_from_wpfc']);
         add_action('init', [$this, 'add_rewrite_rules']);
         add_action('wp_loaded', [$this, 'maybe_flush_rewrite_rules']);
         add_action('admin_init', [$this, 'repair_standalone_slug']);
@@ -2092,6 +2094,10 @@ class MYZ_AI_Chatbot {
     /**
      * スタンドアロンページの表示
      */
+    public function exclude_standalone_from_wpfc($exclude) {
+        return get_query_var('myz_chatbot_standalone') ? true : $exclude;
+    }
+
     public function render_standalone_page() {
         if (!get_query_var('myz_chatbot_standalone')) return;
 
