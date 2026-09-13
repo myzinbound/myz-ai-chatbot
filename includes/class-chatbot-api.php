@@ -121,6 +121,21 @@ class MYZ_Chatbot_API {
     }
 
     /**
+     * 単発のテキスト生成（管理画面でのボタン文言の自動翻訳などに使う）。失敗時は WP_Error。
+     */
+    public function complete_text($system_prompt, $user_text) {
+        $provider = get_option('myz_chatbot_ai_provider', 'claude');
+        $api_key = $this->get_api_key($provider);
+        if (empty($api_key)) return new WP_Error('no_key', 'APIキーが未設定です');
+        $messages = [['role' => 'user', 'content' => $user_text]];
+        switch ($provider) {
+            case 'chatgpt': return $this->call_chatgpt($api_key, $system_prompt, $messages);
+            case 'gemini':  return $this->call_gemini($api_key, $system_prompt, $messages);
+            default:        return $this->call_claude($api_key, $system_prompt, $messages);
+        }
+    }
+
+    /**
      * プロバイダーに応じたAPIキーを取得
      */
     private function get_api_key($provider) {

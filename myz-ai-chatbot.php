@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.20.4
+ * Version: 5.21.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.20.4');
+define('MYZ_CHATBOT_VERSION', '5.21.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -82,6 +82,11 @@ class MYZ_AI_Chatbot {
         add_action('template_redirect', [$this, 'render_standalone_page']);
         // WP Fastest Cache は DONOTCACHEPAGE を無視するので、WPFCの除外ルール（WpFastestCacheExclude）に客室QRページを自動登録する
         add_action('admin_init', [$this, 'ensure_wpfc_exclusion']);
+        // 客室QRページのクイック質問ボタン: 保存時に他言語へ自動翻訳してキャッシュ
+        add_action('add_option_myz_chatbot_quick_buttons', [$this, 'on_quick_buttons_added'], 10, 2);
+        add_action('update_option_myz_chatbot_quick_buttons', [$this, 'on_quick_buttons_saved'], 10, 2);
+        // チャット履歴のCSVダウンロード
+        add_action('admin_post_myz_export_chat_logs', [$this, 'export_chat_logs_csv']);
         add_action('init', [$this, 'add_rewrite_rules']);
         add_action('wp_loaded', [$this, 'maybe_flush_rewrite_rules']);
         add_action('admin_init', [$this, 'repair_standalone_slug']);
@@ -270,6 +275,10 @@ class MYZ_AI_Chatbot {
         register_setting('myz_chatbot_settings', 'myz_chatbot_text_color', ['default' => '#ffffff']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_send_icon', ['default' => 'paper-plane']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_welcome_message', ['default' => "こんにちは！AIアシスタントです。サービス内容や料金など、お気軽にご質問ください。\n\nHello! I'm your AI assistant. Please feel free to ask me any questions about our services, pricing, or anything else."]);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_quick_buttons', [
+            'default' => '',
+            'sanitize_callback' => 'sanitize_textarea_field',
+        ]);
         // 言語別初期メッセージ（空欄なら上の共通メッセージを使用＝後方互換）
         // 言語別ヘッダータイトル（空ならmyz_chatbot_header_textにフォールバック）
         foreach ($this->supported_langs() as $myz_lang) {
@@ -1244,6 +1253,26 @@ class MYZ_AI_Chatbot {
                         </td>
                     </tr>
                     <tr>
+                        <th scope="row">クイック質問ボタン</th>
+                        <td>
+                            <textarea name="myz_chatbot_quick_buttons" rows="9" class="large-text" placeholder="<?php echo esc_attr(self::quick_buttons_default_text()); ?>"><?php echo esc_textarea(get_option('myz_chatbot_quick_buttons', '')); ?></textarea>
+                            <p class="description">QRページの初期メッセージの下に並ぶ、タップするだけで質問できるボタンです。1行1ボタン、<code>ボタン名 | 送る質問文</code>（「|」以降を省略するとボタン名がそのまま質問になります）。<strong>空欄なら共通の7ボタン</strong>（チェックイン方法・駐車場・アメニティ・Wi-Fi・ゴミの出し方・荷物預かり・周辺情報）を表示します。宿ごとのサービス（食器レンタル・自転車レンタル・サウナ・三線教室など）を足すときは、上の7行をコピーしたうえで行を追加してください。日本語で書けば保存時にAIが7言語へ自動翻訳します（共通7ボタンは辞書で即時）。最大20個。</p>
+                            <?php
+                            $qb_i18n = get_option('myz_chatbot_quick_buttons_i18n', '');
+                            $qb_i18n = $qb_i18n ? json_decode($qb_i18n, true) : null;
+                            if (is_array($qb_i18n) && !empty($qb_i18n['_error'])): ?>
+                            <p style="color:#c00; margin:6px 0;">自動翻訳に失敗しました: <?php echo esc_html($qb_i18n['_error']); ?>（該当ボタンは日本語のまま表示されます。設定を少し変えて保存し直すと再試行します）</p>
+                            <?php endif; ?>
+                            <?php if (is_array($qb_i18n) && !empty($qb_i18n['en'])): ?>
+                            <details style="margin-top:6px;"><summary style="cursor:pointer;">翻訳プレビュー（English）</summary>
+                                <ul style="margin:6px 0 0 18px;">
+                                <?php foreach ($qb_i18n['en'] as $b): ?><li><strong><?php echo esc_html($b['l']); ?></strong> → <?php echo esc_html($b['q']); ?></li><?php endforeach; ?>
+                                </ul>
+                            </details>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row">QRコード</th>
                         <td>
                             <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=<?php echo urlencode($sa_url); ?>"
@@ -1495,13 +1524,27 @@ class MYZ_AI_Chatbot {
             $this->create_tables();
         }
 
+        // 表示期間・ページング（保存自体は無制限で、ここは表示の絞り込みだけ）
+        $period_options = [7 => '7日', 30 => '30日', 90 => '90日', 180 => '半年', 365 => '1年', 0 => '全期間'];
+        $days = isset($_GET['days']) ? (int) $_GET['days'] : 180;
+        if (!array_key_exists($days, $period_options)) $days = 180;
+        $per_page = 100;
+        $paged = max(1, (int) ($_GET['paged'] ?? 1));
+        $where = $days > 0 ? $wpdb->prepare("WHERE created_at >= %s", gmdate('Y-m-d H:i:s', current_time('timestamp') - $days * DAY_IN_SECONDS)) : '';
+
         $category_counts = $wpdb->get_results(
-            "SELECT category, COUNT(*) as cnt FROM $table GROUP BY category ORDER BY cnt DESC"
+            "SELECT category, COUNT(*) as cnt FROM $table $where GROUP BY category ORDER BY cnt DESC"
         );
         $total_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table");
-        $logs = $wpdb->get_results(
-            "SELECT * FROM $table ORDER BY created_at DESC LIMIT 50"
-        );
+        $period_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table $where");
+        $total_pages = max(1, (int) ceil($period_count / $per_page));
+        if ($paged > $total_pages) $paged = $total_pages;
+        $logs = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table $where ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d",
+            $per_page, ($paged - 1) * $per_page
+        ));
+        $base_url = admin_url('admin.php?page=myz-chat-logs&days=' . $days);
+        $export_url = wp_nonce_url(admin_url('admin-post.php?action=myz_export_chat_logs&days=' . $days), 'myz_export_chat_logs');
 
         // 日別推移（過去14日）
         $daily_counts = $wpdb->get_results(
@@ -1526,8 +1569,12 @@ class MYZ_AI_Chatbot {
             <!-- サマリーカード -->
             <div style="display:flex; gap:24px; flex-wrap:wrap; margin:20px 0;">
                 <div style="background:linear-gradient(135deg, #159BBE, #0d7a99); color:#fff; border-radius:12px; padding:24px 30px; min-width:180px; box-shadow:0 4px 12px rgba(21,155,190,0.3);">
-                    <div style="font-size:13px; opacity:0.9;">総質問数</div>
-                    <div style="font-size:40px; font-weight:700; margin-top:4px;"><?php echo $total_count; ?></div>
+                    <div style="font-size:13px; opacity:0.9;"><?php echo $period_options[$days]; ?>の質問数</div>
+                    <div style="font-size:40px; font-weight:700; margin-top:4px;"><?php echo number_format($period_count); ?></div>
+                </div>
+                <div style="background:#fff; color:#333; border:1px solid #e2e8f0; border-radius:12px; padding:24px 30px; min-width:180px;">
+                    <div style="font-size:13px; color:#666;">保存している総数（全期間）</div>
+                    <div style="font-size:40px; font-weight:700; margin-top:4px; color:#159BBE;"><?php echo number_format($total_count); ?></div>
                 </div>
             </div>
 
@@ -1535,7 +1582,7 @@ class MYZ_AI_Chatbot {
             <?php if (!empty($category_counts)): ?>
             <div style="display:flex; gap:32px; flex-wrap:wrap; margin:24px 0;">
                 <div style="flex:1; min-width:400px; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px;">
-                    <h2 style="font-size:16px; margin:0 0 20px 0; color:#333;">カテゴリ別質問数</h2>
+                    <h2 style="font-size:16px; margin:0 0 20px 0; color:#333;">カテゴリ別質問数（<?php echo $period_options[$days]; ?>）</h2>
                     <?php $i = 0; foreach ($category_counts as $cat):
                         $pct = $max_cat_count > 0 ? round(($cat->cnt / $max_cat_count) * 100) : 0;
                         $color = $colors[$i % count($colors)];
@@ -1610,7 +1657,16 @@ class MYZ_AI_Chatbot {
             </div>
             <?php endif; ?>
 
-            <h2>直近50件の会話</h2>
+            <h2 style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">会話履歴
+                <span style="font-size:13px; font-weight:400; color:#666;">（<?php echo $period_options[$days]; ?>: <?php echo number_format($period_count); ?>件、<?php echo $per_page; ?>件ずつ表示）</span>
+            </h2>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:8px 0;">
+                <span style="font-size:13px; color:#555;">期間:</span>
+                <?php foreach ($period_options as $d => $label): ?>
+                <a class="button <?php echo $d === $days ? 'button-primary' : ''; ?>" href="<?php echo esc_url(admin_url('admin.php?page=myz-chat-logs&days=' . $d)); ?>"><?php echo $label; ?></a>
+                <?php endforeach; ?>
+                <a class="button" style="margin-left:auto;" href="<?php echo esc_url($export_url); ?>">⬇ CSVダウンロード（<?php echo $period_options[$days]; ?>・<?php echo number_format($period_count); ?>件）</a>
+            </div>
             <table class="widefat striped" style="margin-top:12px; table-layout:auto;">
                 <thead>
                     <tr>
@@ -1622,7 +1678,7 @@ class MYZ_AI_Chatbot {
                 </thead>
                 <tbody>
                     <?php if (empty($logs)): ?>
-                    <tr><td colspan="4" style="text-align:center; padding:24px; color:#999;">まだ会話履歴がありません。</td></tr>
+                    <tr><td colspan="4" style="text-align:center; padding:24px; color:#999;">この期間の会話履歴はありません。</td></tr>
                     <?php else: ?>
                         <?php foreach ($logs as $log): ?>
                         <tr>
@@ -1643,6 +1699,13 @@ class MYZ_AI_Chatbot {
                     <?php endif; ?>
                 </tbody>
             </table>
+            <?php if ($total_pages > 1): ?>
+            <div style="display:flex; align-items:center; gap:8px; margin:12px 0;">
+                <?php if ($paged > 1): ?><a class="button" href="<?php echo esc_url($base_url . '&paged=' . ($paged - 1)); ?>">‹ 前の<?php echo $per_page; ?>件</a><?php endif; ?>
+                <span style="font-size:13px; color:#555;"><?php echo $paged; ?> / <?php echo $total_pages; ?> ページ</span>
+                <?php if ($paged < $total_pages): ?><a class="button" href="<?php echo esc_url($base_url . '&paged=' . ($paged + 1)); ?>">次の<?php echo $per_page; ?>件 ›</a><?php endif; ?>
+            </div>
+            <?php endif; ?>
 
             <!-- デバッグ情報 -->
             <div style="margin-top:24px; padding:16px; background:#f9fafb; border:1px solid #e2e8f0; border-radius:8px;">
@@ -2094,6 +2157,209 @@ class MYZ_AI_Chatbot {
     /**
      * スタンドアロンページの表示
      */
+    /* ====================== クイック質問ボタン（客室QRページ） ====================== */
+
+    /** 設定が空のときに使う共通7ボタン（日本語。他言語は quick_buttons_dictionary の辞書で即時展開） */
+    public static function quick_buttons_default_text() {
+        return implode("\n", [
+            'チェックイン方法 | チェックインの方法と時間を教えてください',
+            '駐車場 | 駐車場はありますか？場所と料金を教えてください',
+            'アメニティ | 客室のアメニティと備品を教えてください',
+            'Wi-Fi | Wi-FiのSSIDとパスワードを教えてください',
+            'ゴミの出し方 | ゴミの分別と捨て方を教えてください',
+            '荷物預かり | チェックイン前やチェックアウト後に荷物を預かってもらえますか？',
+            '周辺情報 | 周辺のおすすめの飲食店・コンビニ・観光スポットを教えてください',
+        ]);
+    }
+
+    /** 共通ボタンの辞書（日本語ラベル → 言語 → [ラベル, 質問]）。AIを呼ばずに表示できる */
+    private static function quick_buttons_dictionary() {
+        return [
+            'チェックイン方法' => [
+                'en' => ['Check-in', 'How and when can I check in?'],
+                'zh' => ['入住方式', '請告訴我入住的方法和時間'],
+                'ko' => ['체크인 방법', '체크인 방법과 시간을 알려주세요'],
+                'it' => ['Check-in', 'Come e a che ora posso fare il check-in?'],
+                'de' => ['Check-in', 'Wie und wann kann ich einchecken?'],
+                'fr' => ['Arrivée', 'Comment et à quelle heure puis-je faire le check-in ?'],
+                'es' => ['Check-in', '¿Cómo y a qué hora puedo hacer el check-in?'],
+            ],
+            '駐車場' => [
+                'en' => ['Parking', 'Is there parking? Where is it and how much does it cost?'],
+                'zh' => ['停車場', '有停車場嗎？請告訴我位置和費用'],
+                'ko' => ['주차장', '주차장이 있나요? 위치와 요금을 알려주세요'],
+                'it' => ['Parcheggio', "C'è un parcheggio? Dove si trova e quanto costa?"],
+                'de' => ['Parkplatz', 'Gibt es einen Parkplatz? Wo ist er und was kostet er?'],
+                'fr' => ['Parking', 'Y a-t-il un parking ? Où se trouve-t-il et combien coûte-t-il ?'],
+                'es' => ['Aparcamiento', '¿Hay aparcamiento? ¿Dónde está y cuánto cuesta?'],
+            ],
+            'アメニティ' => [
+                'en' => ['Amenities', 'What amenities and supplies are in the room?'],
+                'zh' => ['備品', '請告訴我客房的備品和設備'],
+                'ko' => ['어메니티', '객실 어메니티와 비품을 알려주세요'],
+                'it' => ['Dotazioni', 'Quali dotazioni e accessori ci sono in camera?'],
+                'de' => ['Ausstattung', 'Welche Ausstattung und Artikel gibt es im Zimmer?'],
+                'fr' => ['Équipements', 'Quels équipements et fournitures y a-t-il dans la chambre ?'],
+                'es' => ['Amenities', '¿Qué amenities y artículos hay en la habitación?'],
+            ],
+            'Wi-Fi' => [
+                'en' => ['Wi-Fi', 'What are the Wi-Fi network name and password?'],
+                'zh' => ['Wi-Fi', '請告訴我Wi-Fi的名稱和密碼'],
+                'ko' => ['Wi-Fi', 'Wi-Fi 이름과 비밀번호를 알려주세요'],
+                'it' => ['Wi-Fi', 'Quali sono il nome e la password del Wi-Fi?'],
+                'de' => ['WLAN', 'Wie lauten WLAN-Name und Passwort?'],
+                'fr' => ['Wi-Fi', 'Quels sont le nom et le mot de passe du Wi-Fi ?'],
+                'es' => ['Wi-Fi', '¿Cuáles son el nombre y la contraseña del Wi-Fi?'],
+            ],
+            'ゴミの出し方' => [
+                'en' => ['Trash', 'How should I sort and dispose of the trash?'],
+                'zh' => ['垃圾處理', '請告訴我垃圾的分類和丟棄方式'],
+                'ko' => ['쓰레기 배출', '쓰레기 분리와 버리는 방법을 알려주세요'],
+                'it' => ['Rifiuti', 'Come devo separare e smaltire i rifiuti?'],
+                'de' => ['Müll', 'Wie soll ich den Müll trennen und entsorgen?'],
+                'fr' => ['Poubelles', 'Comment trier et jeter les déchets ?'],
+                'es' => ['Basura', '¿Cómo debo separar y tirar la basura?'],
+            ],
+            '荷物預かり' => [
+                'en' => ['Luggage storage', 'Can you store my luggage before check-in or after check-out?'],
+                'zh' => ['行李寄放', '入住前或退房後可以寄放行李嗎？'],
+                'ko' => ['짐 보관', '체크인 전이나 체크아웃 후에 짐을 맡길 수 있나요?'],
+                'it' => ['Deposito bagagli', 'Posso lasciare i bagagli prima del check-in o dopo il check-out?'],
+                'de' => ['Gepäckaufbewahrung', 'Kann ich mein Gepäck vor dem Check-in oder nach dem Check-out aufbewahren lassen?'],
+                'fr' => ['Bagagerie', 'Puis-je laisser mes bagages avant le check-in ou après le check-out ?'],
+                'es' => ['Consigna de equipaje', '¿Puedo dejar mi equipaje antes del check-in o después del check-out?'],
+            ],
+            '周辺情報' => [
+                'en' => ['Nearby', 'What restaurants, convenience stores and sights do you recommend nearby?'],
+                'zh' => ['周邊資訊', '請推薦附近的餐廳、便利商店和觀光景點'],
+                'ko' => ['주변 정보', '주변의 추천 음식점, 편의점, 관광지를 알려주세요'],
+                'it' => ['Dintorni', 'Quali ristoranti, minimarket e attrazioni consiglia nei dintorni?'],
+                'de' => ['Umgebung', 'Welche Restaurants, Convenience Stores und Sehenswürdigkeiten empfehlen Sie in der Nähe?'],
+                'fr' => ['Environs', 'Quels restaurants, supérettes et sites recommandez-vous à proximité ?'],
+                'es' => ['Alrededores', '¿Qué restaurantes, tiendas y lugares de interés recomienda cerca?'],
+            ],
+        ];
+    }
+
+    /** 設定テキスト（1行1ボタン「ラベル | 質問」）→ [['l'=>ラベル,'q'=>質問], ...] */
+    private static function parse_quick_buttons($text) {
+        $out = [];
+        foreach (preg_split('/\r\n|\r|\n/', (string) $text) as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') continue;
+            $parts = array_map('trim', explode('|', $line, 2));
+            $label = $parts[0];
+            $q = (isset($parts[1]) && $parts[1] !== '') ? $parts[1] : $label;
+            if ($label === '') continue;
+            $out[] = ['l' => mb_substr($label, 0, 40), 'q' => mb_substr($q, 0, 200)];
+            if (count($out) >= 20) break;
+        }
+        return $out;
+    }
+
+    public function on_quick_buttons_added($option, $value) { $this->refresh_quick_buttons_i18n($value); }
+    public function on_quick_buttons_saved($old, $value) { if ($old !== $value) $this->refresh_quick_buttons_i18n($value); }
+
+    /**
+     * 日本語のボタン定義を8言語に展開して myz_chatbot_quick_buttons_i18n にキャッシュする。
+     * 共通7ボタンは辞書で即時、それ以外（宿ごとのサービス等）は設定保存時に1回だけAIで翻訳する。
+     */
+    public function refresh_quick_buttons_i18n($text) {
+        $src = trim((string) $text) !== '' ? $text : self::quick_buttons_default_text();
+        $ja = self::parse_quick_buttons($src);
+        $dict = self::quick_buttons_dictionary();
+        $langs = $this->supported_langs();
+        $i18n = array_fill_keys($langs, []);
+        $need_ai = [];
+        foreach ($ja as $idx => $b) {
+            foreach ($langs as $l) {
+                if ($l === 'ja') { $i18n['ja'][$idx] = $b; continue; }
+                if (isset($dict[$b['l']][$l])) {
+                    $i18n[$l][$idx] = ['l' => $dict[$b['l']][$l][0], 'q' => $dict[$b['l']][$l][1]];
+                } else {
+                    $i18n[$l][$idx] = $b; // いったん日本語のまま。AI翻訳で上書き
+                    $need_ai[$idx] = $b;
+                }
+            }
+        }
+        $error = '';
+        if (!empty($need_ai)) {
+            $names = ['en' => 'English', 'zh' => 'Traditional Chinese (繁體中文)', 'ko' => 'Korean', 'it' => 'Italian', 'de' => 'German', 'fr' => 'French', 'es' => 'Spanish'];
+            $system = "You translate short UI button labels and guest questions for a hotel chatbot. Return ONLY valid JSON. No markdown, no code fences, no commentary.";
+            $lang_list = [];
+            foreach ($names as $k => $n) { $lang_list[] = "$k=$n"; }
+            $user = "Translate each item into these languages: " . implode(', ', $lang_list) . ".\n"
+                  . "Keep labels very short (1-3 words). Keep questions natural, as a hotel guest would ask.\n"
+                  . "Output format: {\"<index>\": {\"en\": [label, question], \"zh\": [label, question], \"ko\": [...], \"it\": [...], \"de\": [...], \"fr\": [...], \"es\": [...]}}\n\n"
+                  . "Items (index => {l: label, q: question}):\n" . wp_json_encode($need_ai, JSON_UNESCAPED_UNICODE);
+            $api = new MYZ_Chatbot_API();
+            $res = $api->complete_text($system, $user);
+            if (is_wp_error($res)) {
+                $error = $res->get_error_message();
+            } else {
+                $json = trim((string) $res);
+                $json = preg_replace('/^```(?:json)?\s*/i', '', $json);
+                $json = preg_replace('/\s*```$/', '', $json);
+                $data = json_decode($json, true);
+                if (!is_array($data)) {
+                    $error = 'AIの応答をJSONとして解釈できませんでした';
+                } else {
+                    foreach ($need_ai as $idx => $b) {
+                        $row = $data[(string) $idx] ?? ($data[$idx] ?? null);
+                        if (!is_array($row)) continue;
+                        foreach ($names as $l => $_) {
+                            if (!empty($row[$l][0])) {
+                                $ql = trim((string) $row[$l][0]);
+                                $qq = trim((string) ($row[$l][1] ?? $row[$l][0]));
+                                $i18n[$l][$idx] = ['l' => mb_substr($ql, 0, 40), 'q' => mb_substr($qq, 0, 200)];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        foreach ($langs as $l) { ksort($i18n[$l]); $i18n[$l] = array_values($i18n[$l]); }
+        if ($error) $i18n['_error'] = $error;
+        update_option('myz_chatbot_quick_buttons_i18n', wp_json_encode($i18n, JSON_UNESCAPED_UNICODE), false);
+    }
+
+    /** 表示用: 言語コード → ボタン配列。キャッシュが無ければ（初回・旧版からの更新直後）その場で組み立てる */
+    private function get_quick_buttons_all() {
+        $raw = get_option('myz_chatbot_quick_buttons_i18n', '');
+        $data = $raw ? json_decode($raw, true) : null;
+        if (!is_array($data) || empty($data['ja'])) {
+            $this->refresh_quick_buttons_i18n(get_option('myz_chatbot_quick_buttons', ''));
+            $data = json_decode((string) get_option('myz_chatbot_quick_buttons_i18n', '[]'), true);
+            if (!is_array($data)) $data = [];
+        }
+        unset($data['_error']);
+        return $data;
+    }
+
+    /* ====================== チャット履歴CSV ====================== */
+
+    public function export_chat_logs_csv() {
+        if (!current_user_can('manage_options')) wp_die('権限がありません');
+        check_admin_referer('myz_export_chat_logs');
+        global $wpdb;
+        $table = $wpdb->prefix . 'myz_chat_logs';
+        $days = isset($_GET['days']) ? (int) $_GET['days'] : 180;
+        $where = $days > 0 ? $wpdb->prepare("WHERE created_at >= %s", gmdate('Y-m-d H:i:s', current_time('timestamp') - $days * DAY_IN_SECONDS)) : '';
+        $rows = $wpdb->get_results("SELECT created_at, category, session_id, user_message, bot_reply FROM $table $where ORDER BY created_at DESC, id DESC", ARRAY_A);
+        $host = sanitize_title((string) wp_parse_url(home_url(), PHP_URL_HOST));
+        nocache_headers();
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="chat_logs_' . $host . '_' . ($days ?: 'all') . 'd_' . wp_date('Ymd') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // Excelで文字化けしないようBOM
+        fputcsv($out, ['日時', 'カテゴリ', 'セッション', '質問', 'AI回答']);
+        foreach ((array) $rows as $r) {
+            fputcsv($out, [$r['created_at'], $r['category'], $r['session_id'], $r['user_message'], $r['bot_reply']]);
+        }
+        fclose($out);
+        exit;
+    }
+
     /**
      * WP Fastest Cache の除外ルールに客室QR（スタンドアロン）ページを登録する。
      * HTMLに埋め込むnonceは12〜24hで失効するため、ページキャッシュされると全問エラーになる。
@@ -2149,6 +2415,9 @@ class MYZ_AI_Chatbot {
         if (!headers_sent()) {
             header('Vary: Accept-Language');
         }
+
+        // クイック質問ボタン（言語別）
+        $quick_all = $this->get_quick_buttons_all();
 
         $primary_color = get_option('myz_chatbot_primary_color', '#159BBE');
         $text_color = get_option('myz_chatbot_text_color', '#ffffff');
@@ -2301,6 +2570,20 @@ body {
 #sa-send svg { width: 20px; height: 20px; display: block; pointer-events: none; }
 .sa-msg-content strong { font-weight: 700; }
 .sa-msg-content a { color: var(--myz-primary); word-break: break-all; }
+.sa-quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px 0; }
+.sa-quick button {
+    background: #fff;
+    color: var(--myz-primary);
+    border: 1.5px solid var(--myz-primary);
+    border-radius: 20px;
+    padding: 8px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.3;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.sa-quick button:hover, .sa-quick button:active { background: var(--myz-primary); color: var(--myz-text-color); }
 #sa-messages::-webkit-scrollbar { width: 4px; }
 #sa-messages::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
 /* スマホ（QRから全画面で開く想定）: ウィジェット用の文字サイズ設定は小さすぎるので最低18pxに底上げ */
@@ -2314,6 +2597,7 @@ body {
     #sa-input { font-size: 18px; padding: 14px 20px; }
     #sa-send { width: 50px; height: 50px; }
     #sa-send svg { width: 24px; height: 24px; }
+    .sa-quick button { font-size: 16px; padding: 10px 16px; }
 }
 </style>
 </head>
@@ -2328,6 +2612,7 @@ body {
     <div class="sa-msg sa-bot">
         <div class="sa-msg-content"><?php echo $welcome_msg; ?></div>
     </div>
+    <div id="sa-quick" class="sa-quick"></div>
 </div>
 <div id="sa-input-area">
     <input type="text" id="sa-input" placeholder="<?php echo esc_attr($ui['placeholder']); ?>" autocomplete="off" />
@@ -2347,6 +2632,7 @@ body {
     // 端末の言語設定で初期表示を確定する（サーバー側判定＋ページキャッシュのズレを吸収）
     var i18n = <?php echo wp_json_encode($i18n, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE); ?>;
     var lang = <?php echo wp_json_encode($lang); ?>;
+    var quick = <?php echo wp_json_encode($quick_all, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE); ?>;
 
     function pickLang(){
         var tags = (navigator.languages && navigator.languages.length)
@@ -2378,6 +2664,27 @@ body {
         if (firstMsg) { firstMsg.innerHTML = t.welcome; }
         input.placeholder = t.placeholder;
         sendBtn.setAttribute('aria-label', t.send);
+        renderQuick();
+    }
+
+    // タップするだけで質問できるボタン（初期メッセージの下）。言語切替に追従する
+    function renderQuick(){
+        var box = document.getElementById('sa-quick');
+        if (!box) return;
+        var list = (quick && quick[lang]) || (quick && quick.ja) || [];
+        box.innerHTML = '';
+        list.forEach(function(b){
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = b.l;
+            btn.addEventListener('click', function(){
+                if (isLoading) return;
+                input.value = b.q;
+                sendMessage();
+            });
+            box.appendChild(btn);
+        });
+        box.style.display = list.length ? '' : 'none';
     }
     applyLang();
 
