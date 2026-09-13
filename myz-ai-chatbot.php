@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.21.0
+ * Version: 5.21.1
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.21.0');
+define('MYZ_CHATBOT_VERSION', '5.21.1');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -2571,19 +2571,23 @@ body {
 .sa-msg-content strong { font-weight: 700; }
 .sa-msg-content a { color: var(--myz-primary); word-break: break-all; }
 .sa-quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px 0; }
+/* 配色はユーザー吹き出しと同じ（テーマ色の地＋テーマの文字色）。淡いテーマ色でも読める */
 .sa-quick button {
-    background: #fff;
-    color: var(--myz-primary);
-    border: 1.5px solid var(--myz-primary);
+    background: var(--myz-primary);
+    color: var(--myz-text-color);
+    border: 1px solid rgba(0,0,0,0.08);
     border-radius: 20px;
     padding: 8px 14px;
     font-size: 14px;
     font-family: inherit;
+    font-weight: 600;
     line-height: 1.3;
     cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
     -webkit-tap-highlight-color: transparent;
 }
-.sa-quick button:hover, .sa-quick button:active { background: var(--myz-primary); color: var(--myz-text-color); }
+.sa-quick button:hover { filter: brightness(0.96); }
+.sa-quick button:active { filter: brightness(0.9); }
 #sa-messages::-webkit-scrollbar { width: 4px; }
 #sa-messages::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
 /* スマホ（QRから全画面で開く想定）: ウィジェット用の文字サイズ設定は小さすぎるので最低18pxに底上げ */
