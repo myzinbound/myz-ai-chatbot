@@ -258,24 +258,38 @@
 }
 
 /* スクロールバー */
-/* クイック質問ボタン（ユーザー吹き出しと同じ配色） */
+/* クイック質問ボタン（ユーザー吹き出しと同じ配色）
+   テーマ（Elementor/Hello等）の button:hover が赤などに上書きしてくるので、
+   セレクタを強くし !important でテーマ色を固定する */
 .myz-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 4px 0; }
-.myz-quick button {
-    background: var(--myz-primary);
-    color: var(--myz-text-color);
-    border: 1px solid rgba(0,0,0,0.08);
-    border-radius: 16px;
-    padding: 6px 12px;
-    font-size: 13px;
-    font-family: inherit;
-    font-weight: 600;
-    line-height: 1.3;
+#myz-chatbot-container .myz-quick button,
+#myz-chatbot-container .myz-quick button:hover,
+#myz-chatbot-container .myz-quick button:focus,
+#myz-chatbot-container .myz-quick button:active {
+    background: var(--myz-primary) !important;
+    background-image: none !important;
+    color: var(--myz-text-color) !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+    border-radius: 16px !important;
+    padding: 6px 12px !important;
+    font-size: 13px !important;
+    font-family: inherit !important;
+    font-weight: 600 !important;
+    line-height: 1.3 !important;
+    text-decoration: none !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    min-height: 0 !important;
+    width: auto !important;
+    margin: 0 !important;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06) !important;
+    outline: none !important;
+    transition: filter 0.15s ease, transform 0.15s ease;
     -webkit-tap-highlight-color: transparent;
 }
-.myz-quick button:hover { filter: brightness(0.96); }
-.myz-quick button:active { filter: brightness(0.9); }
+#myz-chatbot-container .myz-quick button:hover { filter: brightness(0.92); transform: translateY(-1px); }
+#myz-chatbot-container .myz-quick button:active { filter: brightness(0.85); transform: none; }
 #myz-chatbot-messages::-webkit-scrollbar {
     width: 4px;
 }
