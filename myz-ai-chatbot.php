@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.21.3
+ * Version: 5.22.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.21.3');
+define('MYZ_CHATBOT_VERSION', '5.22.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -1256,7 +1256,7 @@ class MYZ_AI_Chatbot {
                         <th scope="row">クイック質問ボタン</th>
                         <td>
                             <textarea name="myz_chatbot_quick_buttons" rows="9" class="large-text" placeholder="<?php echo esc_attr(self::quick_buttons_default_text()); ?>"><?php echo esc_textarea(get_option('myz_chatbot_quick_buttons', '')); ?></textarea>
-                            <p class="description">QRページの初期メッセージの下に並ぶ、タップするだけで質問できるボタンです。1行1ボタン、<code>ボタン名 | 送る質問文</code>（「|」以降を省略するとボタン名がそのまま質問になります）。<strong>空欄なら共通の7ボタン</strong>（チェックイン方法・駐車場・アメニティ・Wi-Fi・ゴミの出し方・荷物預かり・周辺情報）を表示します。宿ごとのサービス（食器レンタル・自転車レンタル・サウナ・三線教室など）を足すときは、上の7行をコピーしたうえで行を追加してください。日本語で書けば保存時にAIが7言語へ自動翻訳します（共通7ボタンは辞書で即時）。最大20個。</p>
+                            <p class="description">客室QRページと公式サイト内のウィジェットの両方で、初期メッセージの下に並ぶ、タップするだけで質問できるボタンです。1行1ボタン、<code>ボタン名 | 送る質問文</code>（「|」以降を省略するとボタン名がそのまま質問になります）。<strong>空欄なら共通の7ボタン</strong>（チェックイン方法・駐車場・アメニティ・Wi-Fi・ゴミの出し方・荷物預かり・周辺情報）を表示します。宿ごとのサービス（食器レンタル・自転車レンタル・サウナ・三線教室など）を足すときは、上の7行をコピーしたうえで行を追加してください。日本語で書けば保存時にAIが7言語へ自動翻訳します（共通7ボタンは辞書で即時）。最大20個。</p>
                             <?php
                             $qb_i18n = get_option('myz_chatbot_quick_buttons_i18n', '');
                             $qb_i18n = $qb_i18n ? json_decode($qb_i18n, true) : null;
@@ -2803,6 +2803,8 @@ body {
             'position'     => $position,
             // ページの言語（AIに言語別のお問い合わせページを案内させるため）
             'pageLang'     => $this->detect_lang(),
+            // クイック質問ボタン（QRページと同じ設定。ページ言語のぶんだけ渡す）
+            'quick'        => $this->get_quick_buttons_all()[$this->detect_lang()] ?? [],
         ]);
 
         // CSSカスタムプロパティでテーマカラー、文字色、フォント、位置を注入
@@ -2904,6 +2906,7 @@ body {
                             <?php echo $welcome_msg; ?>
                         </div>
                     </div>
+                    <div id="myz-chatbot-quick" class="myz-quick"></div>
                 </div>
                 <div id="myz-chatbot-input-area">
                     <input type="text" id="myz-chatbot-input"

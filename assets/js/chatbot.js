@@ -85,6 +85,25 @@
         }
     });
 
+    // クイック質問ボタン（初期メッセージの下）。QRページと同じ設定
+    (function renderQuick() {
+        var box = document.getElementById('myz-chatbot-quick');
+        var list = (myzChatbot.quick && myzChatbot.quick.length) ? myzChatbot.quick : [];
+        if (!box) return;
+        if (!list.length) { box.style.display = 'none'; return; }
+        list.forEach(function (b) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = b.l;
+            btn.addEventListener('click', function () {
+                if (isLoading) return;
+                input.value = b.q;
+                sendMessage();
+            });
+            box.appendChild(btn);
+        });
+    })();
+
     function sendMessage() {
         const text = input.value.trim();
         if (!text || isLoading) return;
