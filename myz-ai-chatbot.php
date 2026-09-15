@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.22.1
+ * Version: 5.22.2
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.22.1');
+define('MYZ_CHATBOT_VERSION', '5.22.2');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -765,11 +765,8 @@ class MYZ_AI_Chatbot {
                                     <option value="gemini-3-flash-preview" <?php selected($gemini_model, 'gemini-3-flash-preview'); ?>>Gemini 3 Flash（プレビュー）</option>
                                     <option value="gemini-flash-latest" <?php selected($gemini_model, 'gemini-flash-latest'); ?>>Gemini Flash 最新版（自動追従）</option>
                                     <option value="gemini-pro-latest" <?php selected($gemini_model, 'gemini-pro-latest'); ?>>Gemini Pro 最新版（自動追従）</option>
-                                    <option value="gemini-2.5-pro" <?php selected($gemini_model, 'gemini-2.5-pro'); ?>>Gemini 2.5 Pro（旧キーのみ・新規キーでは利用不可）</option>
-                                    <option value="gemini-2.5-flash" <?php selected($gemini_model, 'gemini-2.5-flash'); ?>>Gemini 2.5 Flash（旧キーのみ・新規キーでは利用不可）</option>
-                                    <option value="gemini-2.0-flash" <?php selected($gemini_model, 'gemini-2.0-flash'); ?>>Gemini 2.0 Flash（旧世代）</option>
                                 </select>
-                                <p class="description">※2026年以降に発行した新形式キー（AQ.〜）ではGemini 3系のみ利用可能です。</p>
+                                <p class="description">※2026年以降に発行した新形式キー（AQ.〜）ではGemini 3系のみ利用可能です。Gemini 2.5系はGoogleが2026-10-20から段階廃止（〜2027-03-31）のため選択肢から外しました（v5.22.2）。</p>
                             </td>
                         </tr>
                     </table>
