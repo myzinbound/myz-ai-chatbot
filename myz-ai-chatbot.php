@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.22.2
+ * Version: 5.22.3
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.22.2');
+define('MYZ_CHATBOT_VERSION', '5.22.3');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -1901,8 +1901,8 @@ class MYZ_AI_Chatbot {
         // 2) URLスラッグ接頭辞（多言語サイトのページ言語）
         $path = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
 
-        // /zh/ /zh-… に加え、SZ/MV 方式の /tw-home/（繁体字）も zh 扱い
-        if (strpos($path, '/zh-') !== false || strpos($path, '/zh/') !== false || strpos($path, '/tw-') !== false) {
+        // /zh/ /zh-… に加え、SZ/MV 方式の /tw-home/（繁体字）、NG/MY 方式の /cn-home/（簡体字）も zh 扱い（v5.22.3）
+        if (strpos($path, '/zh-') !== false || strpos($path, '/zh/') !== false || strpos($path, '/tw-') !== false || strpos($path, '/cn-') !== false) {
             return 'zh';
         }
         if (strpos($path, '/ko-') !== false || strpos($path, '/ko/') !== false) {
