@@ -114,6 +114,11 @@ class MYZ_Chatbot_API {
         // プロンプトで禁止していてもナレッジに含まれると出てしまうことがあるため、返答から機械的に除去する
         $reply = $this->strip_email_addresses($reply);
 
+        // 運営会社の代表番号を案内しない施設（設定OFF）では、返答に混ざっても機械的に除去する（v5.22.4）
+        if (get_option('myz_chatbot_company_phone', '1') !== '1') {
+            $reply = $this->strip_company_phone($reply);
+        }
+
         // 会話をDBに保存
         $this->save_log($session_id, $message, $reply, $ip);
 
@@ -183,7 +188,9 @@ class MYZ_Chatbot_API {
         // 全施設共通の事実（運営会社の方針。2026-09-13 ユーザー裁定）
         $system_prompt .= "\n【全施設共通の事実（サイト情報に無くても案内してよい）】\n"
             . "・当施設は無人運営（非対面のセルフチェックイン）のため、チェックイン開始時刻以降であれば深夜のチェックインも可能です。「深夜に到着しても大丈夫か」と聞かれたら可能と答えてください。\n"
-            . "・お急ぎの連絡先として、サイト情報にある運営会社の電話番号（098-894-3597・24時間対応）を案内して構いません。\n";
+            . (get_option('myz_chatbot_company_phone', '1') === '1'
+                ? "・お急ぎの連絡先として、サイト情報にある運営会社の電話番号（098-894-3597・24時間対応）を案内して構いません。\n"
+                : "・運営会社（マイズインバウンド）の電話番号 098-894-3597 は、この施設では電話対応をしていないため絶対に案内しないでください。お急ぎの連絡先を聞かれても運営会社の番号は出さず、サイト情報にある施設の連絡先（電話番号・お問い合わせフォーム）だけを案内してください。\n");
 
         // 番号の秘匿（最優先）。ナレッジから機械除去しているが、万一含まれていても絶対に出さない
         $system_prompt .= "\n【絶対に回答してはいけない情報（最優先）】\n"
@@ -420,6 +427,34 @@ class MYZ_Chatbot_API {
      * 「・メール: xxx@yyy」のようにメールアドレスだけの行は行ごと削除し、
      * 文中に混ざっている場合はアドレスだけを消して前後を詰める。
      */
+    /**
+     * 運営会社の代表番号（098-894-3597）を返答から除去する。
+     * 番号を含む行が「※お急ぎの場合は…」のような案内文なら行ごと削除、文中なら番号と括弧だけ消す。
+     */
+    private function strip_company_phone($text) {
+        $re = '098[\s\-‐－ー]?894[\s\-‐－ー]?3597';
+        if (!preg_match('/' . $re . '/u', $text)) {
+            return $text;
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $text);
+        $out = [];
+        foreach ($lines as $line) {
+            if (!preg_match('/' . $re . '/u', $line)) {
+                $out[] = $line;
+                continue;
+            }
+            if (preg_match('/(お急ぎ|緊急|24時間|24H|運営会社|urgent|emergency|24 hours|24-hour|紧急|緊急|긴급|24시간)/iu', $line)) {
+                continue;   // 「※お急ぎの場合は運営会社…」系の案内行はまるごと落とす
+            }
+            $line = preg_replace('#\s*[（(<＜「]?\s*(TEL|Tel|tel|電話|电话|電話番号)?[:：]?\s*' . $re . '\s*[）)>＞」]?#u', '', $line);
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return preg_replace("/\n{3,}/", "\n\n", trim(implode("\n", $out)));
+    }
+
     private function strip_email_addresses($text) {
         $email_re = '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}';
         if (!preg_match('/' . $email_re . '/u', $text)) {

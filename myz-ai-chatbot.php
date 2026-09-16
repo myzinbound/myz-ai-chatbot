@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.22.3
+ * Version: 5.22.4
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.22.3');
+define('MYZ_CHATBOT_VERSION', '5.22.4');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -253,6 +253,9 @@ class MYZ_AI_Chatbot {
             'default' => '',
             'sanitize_callback' => 'esc_url_raw',
         ]);
+        // v5.22.4: 運営会社の代表番号（098-894-3597・24H）を「お急ぎの連絡先」として案内するか。
+        // 弊社が電話対応しない施設（MY松山など）はOFFにする。既定はON（従来どおり）
+        register_setting('myz_chatbot_settings', 'myz_chatbot_company_phone', ['default' => '1', 'sanitize_callback' => 'sanitize_text_field']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_urls', [
             'sanitize_callback' => [$this, 'sanitize_urls'],
         ]);
@@ -799,6 +802,14 @@ class MYZ_AI_Chatbot {
                             <textarea name="myz_chatbot_extra_instructions" rows="6" class="large-text"
                                 ><?php echo esc_textarea(get_option('myz_chatbot_extra_instructions', $default_instructions)); ?></textarea>
                             <p class="description">AIの回答スタイルについての指示。例：「敬語で回答」「料金の質問にはお問い合わせを促す」</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">運営会社の電話番号を案内</th>
+                        <td>
+                            <label><input type="checkbox" name="myz_chatbot_company_phone" value="1" <?php checked(get_option('myz_chatbot_company_phone', '1'), '1'); ?> />
+                                お急ぎの連絡先として運営会社（マイズインバウンド）の代表番号 098-894-3597（24時間対応）を案内する</label>
+                            <p class="description">弊社が電話対応をしない施設（コンサルのみ等）はOFFにしてください。OFFにすると案内しないだけでなく、回答に番号が混ざっても機械的に除去します。</p>
                         </td>
                     </tr>
                     <tr>
