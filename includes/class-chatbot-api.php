@@ -263,7 +263,8 @@ class MYZ_Chatbot_API {
         $body = [
             'model' => $model,
             'max_tokens' => $this->max_tokens,
-            'system' => $system_prompt,
+            // v5.23.1: サイト情報（毎回同じ）をキャッシュ。5分以内の2問目以降は入力料金が約1/10になり応答も速くなる
+            'system' => [['type' => 'text', 'text' => $system_prompt, 'cache_control' => ['type' => 'ephemeral']]],
             'messages' => $messages,
         ];
         // Claude 5系（Sonnet 5.5 / Opus 5.5 / Fable 5.1 等）は思考が常時オン。チャット用途なので effort=low で速さ優先、
@@ -320,6 +321,8 @@ class MYZ_Chatbot_API {
         $body = [
             'model' => $model,
             'messages' => $oai_messages,
+            // v5.23.1: OpenAIは同じ先頭部分を自動キャッシュする。サイトごとのキーで同じキャッシュに当たりやすくする
+            'prompt_cache_key' => 'myz-chatbot-' . substr(md5(home_url()), 0, 12),
         ];
         if (preg_match('/^gpt-(3|4)/', $model)) {
             $body['max_tokens'] = $this->max_tokens;
