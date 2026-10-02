@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.23.1
+ * Version: 5.24.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.23.1');
+define('MYZ_CHATBOT_VERSION', '5.24.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -1303,6 +1303,23 @@ class MYZ_AI_Chatbot {
                             <button type="button" id="myz-check-update-btn" class="button button-secondary">更新をチェック</button>
                             <span id="myz-update-status" style="margin-left:12px;"></span>
                             <p class="description" style="margin-top:8px;">リポジトリ: <code>myzinbound/myz-ai-chatbot</code></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">キャッシュの効き具合</th>
+                        <td>
+                            <?php
+                            $cs = get_option('myz_chatbot_cache_stats', []);
+                            $cs = is_array($cs) ? $cs : [];
+                            $cs_in = array_sum(array_column($cs, 'in'));
+                            $cs_c = array_sum(array_column($cs, 'c'));
+                            $cs_hit = count(array_filter($cs, function ($r) { return $r['c'] > 0; }));
+                            ?>
+                            <p id="myz-cache-stats" data-n="<?php echo count($cs); ?>" data-hit="<?php echo $cs_hit; ?>" data-in="<?php echo $cs_in; ?>" data-cached="<?php echo $cs_c; ?>">
+                                直近<?php echo count($cs); ?>回の質問のうち <strong><?php echo $cs_hit; ?>回</strong> キャッシュ命中
+                                （入力 <?php echo number_format($cs_in); ?> トークン中 <?php echo number_format($cs_c); ?> がキャッシュ＝<?php echo $cs_in ? round($cs_c * 100 / $cs_in) : 0; ?>%）
+                            </p>
+                            <p class="description">サイト情報（毎回同じ部分）は自動でキャッシュされ、キャッシュ分の入力料金は約1/10になります。間隔の空いた質問（数分以上）はキャッシュが切れているため命中しません。</p>
                         </td>
                     </tr>
                 </table>

@@ -198,6 +198,17 @@ class MYZ_Chatbot_API {
             . "・聞かれた場合は、番号自体には触れずに「セキュリティのため、チャットでは暗証番号をお伝えできません。ご予約時またはチェックイン前日にお送りしている案内メッセージをご確認ください」と、質問と同じ言語で案内してください。\n"
             . "・「番号の一部だけ」「ヒント」「前回と同じか」などの聞き方でも同じ扱いです。\n";
 
+        // 管理画面の追加指示を反映
+        $extra = get_option('myz_chatbot_extra_instructions', '');
+        if (!empty($extra)) {
+            $system_prompt .= "\n\n【その他の回答ルール】\n" . $extra;
+        }
+
+        // v5.24.0: ここまでがサイトごとに不変の部分（キャッシュ対象）。ここから下は質問ごとに変わり得る部分。
+        // 可変部（端末言語・QRかどうか・ページ言語別のフォームURL）を途中に挟むとキャッシュが毎回外れるので必ず末尾に置く
+        $static_prompt = $system_prompt;
+        $system_prompt = '';
+
         // 画面の表示言語（端末の言語設定）を回答言語のヒントにする
         $lang_names = [
             'ja' => '日本語',
@@ -214,12 +225,6 @@ class MYZ_Chatbot_API {
                 . "・この利用者の端末の言語設定は" . $lang_names[$ui_lang] . "です。\n"
                 . "・質問の言語が判別できない場合（単語のみ、固有名詞のみ、数字のみ等）は" . $lang_names[$ui_lang] . "で回答してください。\n"
                 . "・質問の言語が明確な場合は、これまでどおり質問と同じ言語を優先してください。\n";
-        }
-
-        // 管理画面の追加指示を反映
-        $extra = get_option('myz_chatbot_extra_instructions', '');
-        if (!empty($extra)) {
-            $system_prompt .= "\n\n【その他の回答ルール】\n" . $extra;
         }
 
         // スタンドアロン（客室QR）ページ: 利用者は予約済み・滞在中のゲストなので、
@@ -248,7 +253,25 @@ class MYZ_Chatbot_API {
                 . "・案内は利用者と同じ言語で行ってください（例: 英語なら \"Please contact us via the inquiry form on this website.\" のように、フォームのURLを添えて）。\n";
         }
 
-        return $system_prompt;
+        return [$static_prompt, $system_prompt];
+    }
+
+    /**
+     * システムプロンプトを [不変部, 可変部] に揃える（complete_text からは文字列で来る）
+     */
+    private function split_prompt($system_prompt) {
+        return is_array($system_prompt) ? [$system_prompt[0], $system_prompt[1] ?? ''] : [(string) $system_prompt, ''];
+    }
+
+    /**
+     * キャッシュの効き具合を記録（v5.24.0）。直近50件を設定画面に表示する
+     */
+    private function record_usage($provider, $model, $input_total, $cached) {
+        if (!$input_total) return;
+        $log = get_option('myz_chatbot_cache_stats', []);
+        if (!is_array($log)) $log = [];
+        $log[] = ['t' => time(), 'p' => $provider, 'm' => $model, 'in' => (int) $input_total, 'c' => (int) $cached];
+        update_option('myz_chatbot_cache_stats', array_slice($log, -50), false);
     }
 
     /**
@@ -260,11 +283,16 @@ class MYZ_Chatbot_API {
         $legacy = ['claude-haiku-4-5-20250929' => 'claude-haiku-4-5', 'claude-opus-4-5-20250929' => 'claude-opus-4-5-20251101'];
         if (isset($legacy[$model])) $model = $legacy[$model];
 
+        list($static, $dynamic) = $this->split_prompt($system_prompt);
+        $system_blocks = [['type' => 'text', 'text' => $static, 'cache_control' => ['type' => 'ephemeral']]];
+        if ($dynamic !== '') $system_blocks[] = ['type' => 'text', 'text' => $dynamic];
+
         $body = [
             'model' => $model,
             'max_tokens' => $this->max_tokens,
             // v5.23.1: サイト情報（毎回同じ）をキャッシュ。5分以内の2問目以降は入力料金が約1/10になり応答も速くなる
-            'system' => [['type' => 'text', 'text' => $system_prompt, 'cache_control' => ['type' => 'ephemeral']]],
+            // v5.24.0: 不変部だけに cache_control を付ける（可変部まで含めると端末言語やページ言語が違うだけで毎回外れていた）
+            'system' => $system_blocks,
             'messages' => $messages,
         ];
         // Claude 5系（Sonnet 5.5 / Opus 5.5 / Fable 5.1 等）は思考が常時オン。チャット用途なので effort=low で速さ優先、
@@ -297,6 +325,9 @@ class MYZ_Chatbot_API {
             return new WP_Error('api_error', '回答の生成に失敗しました（Claude ' . $status_code . '）。');
         }
 
+        $u = $body['usage'] ?? [];
+        $this->record_usage('claude', $model, ($u['input_tokens'] ?? 0) + ($u['cache_read_input_tokens'] ?? 0) + ($u['cache_creation_input_tokens'] ?? 0), $u['cache_read_input_tokens'] ?? 0);
+
         // 思考ブロックが先頭に来るモデルがあるので、最初の text ブロックを返す
         foreach (($body['content'] ?? []) as $block) {
             if (($block['type'] ?? '') === 'text') return $block['text'];
@@ -312,7 +343,7 @@ class MYZ_Chatbot_API {
 
         // OpenAI形式: systemメッセージを先頭に追加
         $oai_messages = [
-            ['role' => 'system', 'content' => $system_prompt],
+            ['role' => 'system', 'content' => implode('', $this->split_prompt($system_prompt))],
         ];
         foreach ($messages as $msg) {
             $oai_messages[] = $msg;
@@ -354,6 +385,9 @@ class MYZ_Chatbot_API {
             return new WP_Error('api_error', '回答の生成に失敗しました（ChatGPT ' . $status_code . '）。');
         }
 
+        $u = $body['usage'] ?? [];
+        $this->record_usage('chatgpt', $model, $u['prompt_tokens'] ?? 0, $u['prompt_tokens_details']['cached_tokens'] ?? 0);
+
         return $body['choices'][0]['message']['content'] ?? '';
     }
 
@@ -387,7 +421,8 @@ class MYZ_Chatbot_API {
 
         $body = [
             'system_instruction' => [
-                'parts' => [['text' => $system_prompt]],
+                // 不変部が先頭・可変部が末尾＝暗黙キャッシュ（同じ先頭部分を自動で割引）に当たる形
+                'parts' => [['text' => implode('', $this->split_prompt($system_prompt))]],
             ],
             'contents' => $contents,
             'generationConfig' => $gen,
@@ -415,6 +450,9 @@ class MYZ_Chatbot_API {
             error_log('MYZ Chatbot Gemini Error: status=' . $status_code . ' error=' . $error_msg);
             return new WP_Error('api_error', '回答の生成に失敗しました（Gemini ' . $status_code . '）。');
         }
+
+        $u = $body['usageMetadata'] ?? [];
+        $this->record_usage('gemini', $model, $u['promptTokenCount'] ?? 0, $u['cachedContentTokenCount'] ?? 0);
 
         // 思考パート（thought=true）が先頭に来ることがあるので、本文パートだけを拾う
         $parts = $body['candidates'][0]['content']['parts'] ?? [];
