@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.22.4
+ * Version: 5.23.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.22.4');
+define('MYZ_CHATBOT_VERSION', '5.23.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -706,9 +706,11 @@ class MYZ_AI_Chatbot {
                             <td>
                                 <?php $claude_model = get_option('myz_chatbot_claude_model', 'claude-sonnet-4-5-20250929'); ?>
                                 <select name="myz_chatbot_claude_model">
-                                    <option value="claude-sonnet-4-5-20250929" <?php selected($claude_model, 'claude-sonnet-4-5-20250929'); ?>>Claude Sonnet 4.5（推奨・バランス型）</option>
-                                    <option value="claude-haiku-4-5-20250929" <?php selected($claude_model, 'claude-haiku-4-5-20250929'); ?>>Claude Haiku 4.5（高速・低コスト）</option>
-                                    <option value="claude-opus-4-5-20250929" <?php selected($claude_model, 'claude-opus-4-5-20250929'); ?>>Claude Opus 4.5（高性能・高コスト）</option>
+                                    <option value="claude-sonnet-5-5" <?php selected($claude_model, 'claude-sonnet-5-5'); ?>>Claude Sonnet 5.5（推奨・2026-09最新・バランス型）</option>
+                                    <option value="claude-haiku-4-5" <?php selected(in_array($claude_model, ['claude-haiku-4-5', 'claude-haiku-4-5-20250929'], true), true); ?>>Claude Haiku 4.5（最速・低コスト）</option>
+                                    <option value="claude-opus-5-5" <?php selected($claude_model, 'claude-opus-5-5'); ?>>Claude Opus 5.5（高性能・応答やや遅め）</option>
+                                    <option value="claude-fable-5-1" <?php selected($claude_model, 'claude-fable-5-1'); ?>>Claude Fable 5.1（最高性能・高コスト・応答遅め）</option>
+                                    <option value="claude-sonnet-4-5-20250929" <?php selected($claude_model, 'claude-sonnet-4-5-20250929'); ?>>Claude Sonnet 4.5（旧世代）</option>
                                 </select>
                             </td>
                         </tr>
@@ -733,10 +735,12 @@ class MYZ_AI_Chatbot {
                             <td>
                                 <?php $openai_model = get_option('myz_chatbot_openai_model', 'gpt-4o-mini'); ?>
                                 <select name="myz_chatbot_openai_model">
-                                    <option value="gpt-4o-mini" <?php selected($openai_model, 'gpt-4o-mini'); ?>>GPT-4o mini（推奨・低コスト）</option>
-                                    <option value="gpt-4o" <?php selected($openai_model, 'gpt-4o'); ?>>GPT-4o（高性能）</option>
-                                    <option value="gpt-4.1" <?php selected($openai_model, 'gpt-4.1'); ?>>GPT-4.1（最新）</option>
-                                    <option value="gpt-4.1-mini" <?php selected($openai_model, 'gpt-4.1-mini'); ?>>GPT-4.1 mini（最新・低コスト）</option>
+                                    <option value="gpt-6-luna" <?php selected($openai_model, 'gpt-6-luna'); ?>>GPT-6 Luna（推奨・高速・低コスト）</option>
+                                    <option value="gpt-6.1-sol" <?php selected($openai_model, 'gpt-6.1-sol'); ?>>GPT-6.1 Sol（バランス型・2026-09最新）</option>
+                                    <option value="gpt-6-astra" <?php selected($openai_model, 'gpt-6-astra'); ?>>GPT-6 Astra（最高性能・高コスト）</option>
+                                    <option value="gpt-5.4-mini" <?php selected($openai_model, 'gpt-5.4-mini'); ?>>GPT-5.4 mini（前世代・低コスト）</option>
+                                    <option value="gpt-4.1-mini" <?php selected($openai_model, 'gpt-4.1-mini'); ?>>GPT-4.1 mini（旧世代）</option>
+                                    <option value="gpt-4o-mini" <?php selected($openai_model, 'gpt-4o-mini'); ?>>GPT-4o mini（旧世代）</option>
                                 </select>
                             </td>
                         </tr>

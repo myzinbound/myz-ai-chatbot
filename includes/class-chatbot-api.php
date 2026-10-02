@@ -256,6 +256,9 @@ class MYZ_Chatbot_API {
      */
     private function call_claude($api_key, $system_prompt, $messages) {
         $model = get_option('myz_chatbot_claude_model', 'claude-sonnet-4-5-20250929');
+        // v5.23.0: 旧選択肢のモデルIDは実在しない日付だった（選ぶと404）。正しいIDへ読み替える
+        $legacy = ['claude-haiku-4-5-20250929' => 'claude-haiku-4-5', 'claude-opus-4-5-20250929' => 'claude-opus-4-5-20251101'];
+        if (isset($legacy[$model])) $model = $legacy[$model];
 
         $body = [
             'model' => $model,
@@ -263,6 +266,12 @@ class MYZ_Chatbot_API {
             'system' => $system_prompt,
             'messages' => $messages,
         ];
+        // Claude 5系（Sonnet 5.5 / Opus 5.5 / Fable 5.1 等）は思考が常時オン。チャット用途なので effort=low で速さ優先、
+        // 思考分も max_tokens に含まれるので枠を広げる（1024だと回答が途中で切れる）
+        if (preg_match('/^claude-(sonnet|opus|fable)-5/', $model)) {
+            $body['output_config'] = ['effort' => 'low'];
+            $body['max_tokens'] = max($this->max_tokens, 4096);
+        }
 
         $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 30,
@@ -287,7 +296,11 @@ class MYZ_Chatbot_API {
             return new WP_Error('api_error', '回答の生成に失敗しました（Claude ' . $status_code . '）。');
         }
 
-        return $body['content'][0]['text'] ?? '';
+        // 思考ブロックが先頭に来るモデルがあるので、最初の text ブロックを返す
+        foreach (($body['content'] ?? []) as $block) {
+            if (($block['type'] ?? '') === 'text') return $block['text'];
+        }
+        return '';
     }
 
     /**
@@ -306,9 +319,15 @@ class MYZ_Chatbot_API {
 
         $body = [
             'model' => $model,
-            'max_tokens' => $this->max_tokens,
             'messages' => $oai_messages,
         ];
+        if (preg_match('/^gpt-(3|4)/', $model)) {
+            $body['max_tokens'] = $this->max_tokens;
+        } else {
+            // v5.23.0: GPT-5以降は max_tokens を拒否（400）。推論モデルなので推論分も含めて枠を広げ、effort=low で速さ優先
+            $body['max_completion_tokens'] = max($this->max_tokens, 4096);
+            $body['reasoning_effort'] = 'low';
+        }
 
         $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
             'timeout' => 30,
