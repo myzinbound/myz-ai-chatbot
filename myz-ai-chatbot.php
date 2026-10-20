@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.24.0
+ * Version: 5.25.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.24.0');
+define('MYZ_CHATBOT_VERSION', '5.25.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -40,10 +40,58 @@ class MYZ_AI_Chatbot {
         'その他'           => [],
     ];
 
+    /**
+     * 宿サイト向けの質問分類（v5.25.0〜）。上から順に判定し、最初に当たった分類になる
+     * （「自転車レンタルの料金」→有料サービス、「駐車場の料金」→駐車場・交通、「ベランダで喫煙」→ハウスルール になるよう、具体的なものを上に置く）。
+     * ゲストは多言語なので日・英・繁/簡・韓の語を併記。英字の語は単語の先頭でだけ当てる（"car" が "card" に当たらないように）。
+     */
+    const HOTEL_CATEGORIES = [
+        '荷物預かり'         => ['荷物', '預か', '預け', 'スーツケース', 'luggage', 'baggage', 'suitcase', 'bag drop', '行李', '寄存', '짐', '수하물', '캐리어'],
+        'Wi-Fi'              => ['wifi', 'wi-fi', 'ワイファイ', 'インターネット', 'ネット', 'internet', '網路', '网络', '无线', '無線', '와이파이', '인터넷'],
+        '駐車場・交通'       => ['駐車', 'パーキング', 'レンタカー', '車で', '空港', 'バス停', 'バスで', 'バスは', 'バスの', 'バスが', '路線バス', 'タクシー', '駅', 'モノレール', 'ゆいレール', 'アクセス', '行き方', '道順', '徒歩',
+                                 'parking', 'park my', 'rental car', 'rent a car', 'airport', 'bus', 'taxi', 'station', 'monorail', 'access', 'how to get', 'directions', 'walk',
+                                 '停車', '停车', '租車', '租车', '機場', '机场', '巴士', '公車', '計程車', '出租车', '车站', '車站', '交通', '주차', '렌터카', '공항', '버스', '택시', '역에서', '모노레일'],
+        '有料サービス・体験' => ['レンタル', '自転車', 'サイクル', '食器', 'BBQ', 'バーベキュー', 'サウナ', '三線', '体験', 'ツアー', '浮き輪', 'シュノーケル',
+                                 'rental', 'rent', 'bicycle', 'bike', 'cycle', 'cycling', 'tableware', 'barbecue', 'sauna', 'sanshin', 'tour', 'snorkel',
+                                 '租借', '腳踏車', '自行車', '自行车', '烤肉', '桑拿', '體驗', '体验', '자전거', '대여', '바베큐', '사우나', '체험', '투어'],
+        '予約・料金・支払い' => ['予約', '空室', '空き', '料金', '値段', 'いくら', '支払', '決済', 'クレジット', 'カード払', 'カード決済', '現金', 'キャンセル', '返金', '領収書', '延泊', '宿泊税',
+                                 'book', 'reservation', 'availab*', 'vacan*', 'price', 'cost', 'how much', 'pay', 'payment', 'credit card', 'cash', 'cancel', 'cancellation', 'refund', 'receipt', 'invoice', 'extend', 'extra night', 'tax',
+                                 '預訂', '预订', '訂房', '订房', '空房', '價格', '价格', '費用', '费用', '多少錢', '多少钱', '付款', '支付', '取消', '退款', '收據', '收据', '發票', '发票', '續住', '续住',
+                                 '예약', '빈방', '가격', '요금', '비용', '얼마', '결제', '취소', '환불', '영수증', '연장'],
+        'チェックイン・鍵'   => ['チェックイン', 'チェックアウト', 'アーリー', 'レイト', '到着', '鍵', 'カギ', 'かぎ', 'キー', '暗証', '解錠', 'オートロック', 'フロント', '受付',
+                                 'check-in', 'check in', 'checkin', 'check-out', 'check out', 'checkout', 'early', 'late', 'arriv*', 'key', 'door code', 'passcode', 'pin', 'front desk', 'reception', 'lock',
+                                 '入住', '退房', '辦理', '办理', '到達', '到达', '鑰匙', '钥匙', '密碼', '密码', '門鎖', '门锁', '櫃檯', '前台',
+                                 '체크인', '체크아웃', '도착', '열쇠', '카드키', '키를', '도어락', '비밀번호', '프런트', '프론트'],
+        'ゴミ・ハウスルール' => ['ゴミ', 'ごみ', '分別', '喫煙', 'タバコ', 'たばこ', '禁煙', 'ペット', '騒音', 'うるさ', 'パーティ', '門限', 'ルール', '禁止', '花火',
+                                 'garbage', 'trash', 'rubbish', 'waste', 'smok*', 'cigar*', 'pet', 'dog', 'cat', 'noise', 'noisy', 'party', 'curfew', 'rule', 'allowed', 'firework',
+                                 '垃圾', '分類', '分类', '吸菸', '吸烟', '抽菸', '抽烟', '禁菸', '禁烟', '寵物', '宠物', '噪音', '派對', '派对', '規定', '规定', '煙火', '烟花',
+                                 '쓰레기', '분리수거', '흡연', '담배', '금연', '반려', '애완', '소음', '파티', '규칙', '불꽃'],
+        '客室・設備・アメニティ' => ['アメニティ', 'タオル', 'シャンプー', 'ボディソープ', 'ドライヤー', '歯ブラシ', 'パジャマ', '洗濯', '乾燥機', 'キッチン', '調理', '冷蔵庫', '電子レンジ', '炊飯',
+                                 'エアコン', 'テレビ', 'ベッド', '布団', 'ふとん', '部屋', '客室', '定員', '何人', '浴室', 'お風呂', 'シャワー', 'トイレ', 'ベビー', 'ベランダ', 'バルコニー', '設備',
+                                 'amenit*', 'towel', 'shampoo', 'soap', 'dryer', 'toothbrush', 'pajama', 'laundry', 'washing machine', 'washer', 'kitchen', 'cook', 'fridge', 'refrigerator', 'microwave',
+                                 'air con', 'aircon', 'air-con', 'tv', 'bed', 'bedroom', 'futon', 'room', 'bath', 'bathroom', 'bathtub', 'shower', 'toilet', 'baby', 'crib', 'balcony', 'iron', 'hot water',
+                                 '毛巾', '洗髮', '洗发', '吹風機', '吹风机', '牙刷', '洗衣', '烘乾', '烘干', '廚房', '厨房', '冰箱', '微波爐', '微波炉', '冷氣', '空調', '空调', '電視', '电视',
+                                 '床', '房間', '房间', '浴室', '淋浴', '廁所', '厕所', '嬰兒', '婴儿', '陽台', '阳台', '設備', '设备',
+                                 '어메니티', '수건', '샴푸', '드라이어', '칫솔', '세탁', '건조기', '주방', '부엌', '냉장고', '전자레인지', '에어컨', '티비', '침대', '객실', '욕실', '샤워', '화장실', '아기', '베란다', '발코니'],
+        '食事・買い物'       => ['朝食', '食事', 'レストラン', '飲食', '居酒屋', 'カフェ', 'ランチ', 'ディナー', '夕食', 'コンビニ', 'スーパー', '買い物', 'ドラッグストア', '薬局', 'ATM',
+                                 'breakfast', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'cafe', 'bar', 'izakaya', 'convenience store', 'supermarket', 'grocer*', 'shopping', 'pharmacy', 'drugstore',
+                                 '早餐', '餐廳', '餐厅', '吃', '晚餐', '午餐', '咖啡', '便利商店', '便利店', '超市', '購物', '购物', '藥局', '药店',
+                                 '조식', '아침', '식당', '레스토랑', '음식', '맛집', '저녁', '점심', '카페', '편의점', '마트', '쇼핑', '약국'],
+        '観光・周辺'         => ['観光', 'ビーチ', '海', '水族館', '美ら海', '首里城', '国際通り', 'おすすめ', '周辺', '近く', '近所', '遊び', '天気', '台風', '雨',
+                                 'sightseeing', 'tourist', 'beach', 'sea', 'aquarium', 'attraction', 'recommend*', 'nearby', 'near', 'around', 'things to do', 'weather', 'typhoon', 'rain',
+                                 '觀光', '观光', '海灘', '海滩', '水族館', '水族馆', '景點', '景点', '推薦', '推荐', '附近', '周邊', '周边', '天氣', '天气', '颱風', '台风', '下雨',
+                                 '관광', '해변', '바다', '수족관', '명소', '추천', '근처', '주변', '날씨', '태풍', '비가', '우천'],
+        'その他'             => [],
+    ];
+
+    /** 分類ルールの版。上げると既存の会話ログも新ルールで分類し直す（管理画面を開いた時に少しずつ） */
+    const CATEGORY_REV = 2;
+
     public function __construct() {
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_init', [$this, 'maybe_create_tables']);
+        add_action('admin_init', [$this, 'maybe_reclassify_logs'], 20);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_footer', [$this, 'render_widget']);
 
@@ -1581,7 +1629,7 @@ class MYZ_AI_Chatbot {
         );
 
         // グラフ用の色
-        $colors = ['#159BBE', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA', '#A8D8EA', '#FCBAD3'];
+        $colors = ['#159BBE', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA', '#A8D8EA', '#FCBAD3', '#C9B79C', '#B5B5B5'];
         $max_cat_count = 0;
         foreach ($category_counts as $cat) {
             if ((int)$cat->cnt > $max_cat_count) $max_cat_count = (int)$cat->cnt;
@@ -1788,16 +1836,70 @@ class MYZ_AI_Chatbot {
         <?php
     }
 
+    /**
+     * 会社サイト（myzminpaku.com）は会社向けの分類、それ以外（宿サイト）は宿向けの分類を使う（v5.25.0〜）。
+     * 判定を変えたいサイトはフィルター myz_chatbot_category_set で 'company' / 'hotel' を返す。
+     */
+    public static function category_set() {
+        $host = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+        $set = (stripos($host, 'myzminpaku') !== false) ? 'company' : 'hotel';
+        return apply_filters('myz_chatbot_category_set', $set);
+    }
+
+    public static function categories() {
+        return self::category_set() === 'company' ? self::CATEGORIES : self::HOTEL_CATEGORIES;
+    }
+
     public static function classify_question($text) {
-        foreach (self::CATEGORIES as $category => $keywords) {
+        foreach (self::categories() as $category => $keywords) {
             if (empty($keywords)) continue;
             foreach ($keywords as $keyword) {
-                if (mb_stripos($text, $keyword) !== false) {
+                if (preg_match('/^[\x20-\x7E]+$/', $keyword)) {
+                    // 英字の語は単語単位で当てる（"pet"→"carpet"、"tax"→"taxi" の誤爆防止）。
+                    // 語尾 s/es/ed/ing は許す。末尾 * の語は前方一致（"availab*"→available/availability）
+                    $prefix = substr($keyword, -1) === '*';
+                    $kw = preg_quote(rtrim($keyword, '*'), '/');
+                    $re = $prefix ? '/(?<![a-z])' . $kw . '/i' : '/(?<![a-z])' . $kw . '(?:s|es|ed|ing)?(?![a-z])/i';
+                    if (preg_match($re, $text)) {
+                        return $category;
+                    }
+                } elseif (mb_stripos($text, $keyword) !== false) {
                     return $category;
                 }
             }
         }
         return 'その他';
+    }
+
+    /**
+     * 分類ルールを変えた時に、既存の会話ログを新ルールで分類し直す（v5.25.0〜）。
+     * 管理画面を開くたびに最大2,000件ずつ進め、終わったら CATEGORY_REV を記録して以後は何もしない。
+     */
+    public function maybe_reclassify_logs() {
+        if ((int) get_option('myz_chatbot_category_rev', 1) >= self::CATEGORY_REV) return;
+        global $wpdb;
+        $table = $wpdb->prefix . 'myz_chat_logs';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+            update_option('myz_chatbot_category_rev', self::CATEGORY_REV, false);
+            return;
+        }
+        $last_id = (int) get_option('myz_chatbot_reclassify_last_id', 0);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, user_message, category FROM $table WHERE id > %d ORDER BY id ASC LIMIT 2000", $last_id
+        ));
+        foreach ($rows as $r) {
+            $cat = self::classify_question($r->user_message);
+            if ($cat !== $r->category) {
+                $wpdb->update($table, ['category' => $cat], ['id' => (int) $r->id], ['%s'], ['%d']);
+            }
+            $last_id = (int) $r->id;
+        }
+        if (count($rows) < 2000) {
+            update_option('myz_chatbot_category_rev', self::CATEGORY_REV, false);
+            delete_option('myz_chatbot_reclassify_last_id');
+        } else {
+            update_option('myz_chatbot_reclassify_last_id', $last_id, false);
+        }
     }
 
     /**
