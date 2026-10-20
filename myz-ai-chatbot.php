@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.25.0
+ * Version: 5.26.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.25.0');
+define('MYZ_CHATBOT_VERSION', '5.26.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -46,12 +46,21 @@ class MYZ_AI_Chatbot {
      * ゲストは多言語なので日・英・繁/簡・韓の語を併記。英字の語は単語の先頭でだけ当てる（"car" が "card" に当たらないように）。
      */
     const HOTEL_CATEGORIES = [
-        '荷物預かり'         => ['荷物', '預か', '預け', 'スーツケース', 'luggage', 'baggage', 'suitcase', 'bag drop', '行李', '寄存', '짐', '수하물', '캐리어'],
+        '荷物預かり'         => ['荷物', '預か', '預け', 'スーツケース', 'luggage', 'baggage', 'suitcase', 'bag drop', '行李', '寄存', '짐', '수하물', '캐리어', '宅配', '配達', '小包', '郵便', 'parcel', 'package', 'delivery', '包裹', '快遞', '快递', '택배'],
         'Wi-Fi'              => ['wifi', 'wi-fi', 'ワイファイ', 'インターネット', 'ネット', 'internet', '網路', '网络', '无线', '無線', '와이파이', '인터넷'],
-        '駐車場・交通'       => ['駐車', 'パーキング', 'レンタカー', '車で', '空港', 'バス停', 'バスで', 'バスは', 'バスの', 'バスが', '路線バス', 'タクシー', '駅', 'モノレール', 'ゆいレール', 'アクセス', '行き方', '道順', '徒歩',
-                                 'parking', 'park my', 'rental car', 'rent a car', 'airport', 'bus', 'taxi', 'station', 'monorail', 'access', 'how to get', 'directions', 'walk',
-                                 '停車', '停车', '租車', '租车', '機場', '机场', '巴士', '公車', '計程車', '出租车', '车站', '車站', '交通', '주차', '렌터카', '공항', '버스', '택시', '역에서', '모노레일'],
-        '有料サービス・体験' => ['レンタル', '自転車', 'サイクル', '食器', 'BBQ', 'バーベキュー', 'サウナ', '三線', '体験', 'ツアー', '浮き輪', 'シュノーケル',
+        'トラブル・故障'     => ['お湯が出', '出ない', '出ません', '消えない', '消せない', 'つかない', '点かない', 'つきません', '開かない', '開きません', '閉まらない', '動かない', '壊れ', '故障', '電池', '停電', '詰ま', '水漏れ', '漏れ', '忘れ物', '閉じ込め',
+                                 'cannot open', "can't open", 'not working', "doesn't work", "isn't working", "won't", 'broken', 'battery', 'no hot water', 'power outage', 'leak', 'clogged', 'locked out', 'lost', 'left behind', 'forgot',
+                                 '壞', '坏', '沒有熱水', '没有热水', '打不開', '打不开', '不能用', '停電', '停电', '漏水', '忘了', '遺失', '遗失', '고장', '안 돼', '안돼', '안 열', '안열', '뜨거운 물', '정전', '분실'],
+        '連絡先・運営'       => ['担当者', '連絡先', '電話', 'メール', 'LINE', 'スタッフ', 'オーナー', '運営会社', '管理会社', '問い合わせ', '問合せ', '人と話', 'システムプロンプト', '学習データ', 'あなたは誰',
+                                 'contact', 'phone', 'call', 'email', 'e-mail', 'staff', 'owner', 'manager', 'human', 'real person', 'operated', 'owned', 'monitored', 'AI', 'bot', 'Anthropic', 'Google', 'OpenAI', 'Meta', 'system prompt',
+                                 '聯絡', '联系', '電話', '电话', '郵件', '邮件', '工作人員', '工作人员', '老闆', '老板', '客服', '연락', '전화', '이메일', '직원', '담당자', '주인'],
+        '子ども・添い寝'     => ['子供', '子ども', 'こども', 'お子様', '小学生', '幼児', '乳児', '赤ちゃん', '添い寝', 'キッズ',
+                                 'child', 'children', 'kid', 'infant', 'toddler', 'baby', 'babies', 'babycot', 'cot', 'crib',
+                                 '小孩', '兒童', '儿童', '孩子', '嬰兒', '婴儿', '幼兒', '幼儿', '아이', '어린이', '유아', '아기', '키즈'],
+        '駐車場・交通'       => ['駐車', 'パーキング', 'レンタカー', '車で', '空港', 'バス停', 'バスで', 'バスは', 'バスの', 'バスが', '路線バス', 'タクシー', '駅', 'モノレール', 'ゆいレール', 'アクセス', '行き方', '道順', '徒歩', 'マップコード', 'ナビ', '場所', '住所', '行き方',
+                                 'parking', 'park', 'car', 'mapcode', 'map code', 'navigation', 'location', 'address', 'rental car', 'rent a car', 'airport', 'bus', 'taxi', 'station', 'monorail', 'access', 'how to get', 'directions', 'walk',
+                                 '停車', '停车', '租車', '租车', '機場', '机场', '巴士', '公車', '計程車', '出租车', '车站', '車站', '交通', '位置', '地址', '導航', '导航', '주차', '렌터카', '공항', '버스', '택시', '역에서', '모노레일', '맵코드', '주소', '위치'],
+        '有料サービス・体験' => ['レンタル', '自転車', 'サイクル', '食器', 'BBQ', 'バーベキュー', 'サウナ', '三線', '体験', 'ツアー', '浮き輪', 'シュノーケル', 'マッサージ', '誕生日', '記念日', 'サプライズ', 'massage', 'birthday', 'anniversary', '按摩', '生日', '마사지', '생일',
                                  'rental', 'rent', 'bicycle', 'bike', 'cycle', 'cycling', 'tableware', 'barbecue', 'sauna', 'sanshin', 'tour', 'snorkel',
                                  '租借', '腳踏車', '自行車', '自行车', '烤肉', '桑拿', '體驗', '体验', '자전거', '대여', '바베큐', '사우나', '체험', '투어'],
         '予約・料金・支払い' => ['予約', '空室', '空き', '料金', '値段', 'いくら', '支払', '決済', 'クレジット', 'カード払', 'カード決済', '現金', 'キャンセル', '返金', '領収書', '延泊', '宿泊税',
@@ -63,29 +72,29 @@ class MYZ_AI_Chatbot {
                                  '入住', '退房', '辦理', '办理', '到達', '到达', '鑰匙', '钥匙', '密碼', '密码', '門鎖', '门锁', '櫃檯', '前台',
                                  '체크인', '체크아웃', '도착', '열쇠', '카드키', '키를', '도어락', '비밀번호', '프런트', '프론트'],
         'ゴミ・ハウスルール' => ['ゴミ', 'ごみ', '分別', '喫煙', 'タバコ', 'たばこ', '禁煙', 'ペット', '騒音', 'うるさ', 'パーティ', '門限', 'ルール', '禁止', '花火',
-                                 'garbage', 'trash', 'rubbish', 'waste', 'smok*', 'cigar*', 'pet', 'dog', 'cat', 'noise', 'noisy', 'party', 'curfew', 'rule', 'allowed', 'firework',
+                                 'garbage', 'trash', 'rubbish', 'waste', 'bin', 'burnable', 'recycl*', 'vape', 'smok*', 'cigar*', 'pet', 'dog', 'cat', 'noise', 'noisy', 'party', 'curfew', 'rule', 'allowed', 'firework',
                                  '垃圾', '分類', '分类', '吸菸', '吸烟', '抽菸', '抽烟', '禁菸', '禁烟', '寵物', '宠物', '噪音', '派對', '派对', '規定', '规定', '煙火', '烟花',
                                  '쓰레기', '분리수거', '흡연', '담배', '금연', '반려', '애완', '소음', '파티', '규칙', '불꽃'],
-        '客室・設備・アメニティ' => ['アメニティ', 'タオル', 'シャンプー', 'ボディソープ', 'ドライヤー', '歯ブラシ', 'パジャマ', '洗濯', '乾燥機', 'キッチン', '調理', '冷蔵庫', '電子レンジ', '炊飯',
-                                 'エアコン', 'テレビ', 'ベッド', '布団', 'ふとん', '部屋', '客室', '定員', '何人', '浴室', 'お風呂', 'シャワー', 'トイレ', 'ベビー', 'ベランダ', 'バルコニー', '設備',
+        '客室・設備・アメニティ' => ['アメニ', 'タオル', 'シャンプー', 'ボディソープ', 'ドライヤー', '歯ブラシ', 'パジャマ', '洗濯', '乾燥機', 'キッチン', '調理', '冷蔵庫', '電子レンジ', '炊飯',
+                                 'エアコン', 'テレビ', 'ベッド', '布団', 'ふとん', '部屋', '客室', '定員', '何人', '浴室', 'お風呂', 'シャワー', 'トイレ', 'お手洗い', 'ベランダ', 'バルコニー', '設備', 'エレベーター', 'エレベータ', '掃除機', '清掃', '掃除', 'Netflix', 'ネットフリックス', '寝衣', '寝間着', 'オーシャンビュー', '眺め', '景色', '寝室', '大浴場', '温泉', 'リモコン', '電気', '照明',
                                  'amenit*', 'towel', 'shampoo', 'soap', 'dryer', 'toothbrush', 'pajama', 'laundry', 'washing machine', 'washer', 'kitchen', 'cook', 'fridge', 'refrigerator', 'microwave',
-                                 'air con', 'aircon', 'air-con', 'tv', 'bed', 'bedroom', 'futon', 'room', 'bath', 'bathroom', 'bathtub', 'shower', 'toilet', 'baby', 'crib', 'balcony', 'iron', 'hot water',
+                                 'air con', 'aircon', 'air-con', 'tv', 'bed', 'bedroom', 'futon', 'room', 'bath', 'bathroom', 'bathtub', 'shower', 'toilet', 'balcony', 'iron', 'hot water', 'elevator', 'lift', 'vacuum', 'cleaning', 'netflix', 'ocean view', 'sea view', 'view', 'remote', 'light', 'onsen', 'hot spring',
                                  '毛巾', '洗髮', '洗发', '吹風機', '吹风机', '牙刷', '洗衣', '烘乾', '烘干', '廚房', '厨房', '冰箱', '微波爐', '微波炉', '冷氣', '空調', '空调', '電視', '电视',
-                                 '床', '房間', '房间', '浴室', '淋浴', '廁所', '厕所', '嬰兒', '婴儿', '陽台', '阳台', '設備', '设备',
-                                 '어메니티', '수건', '샴푸', '드라이어', '칫솔', '세탁', '건조기', '주방', '부엌', '냉장고', '전자레인지', '에어컨', '티비', '침대', '객실', '욕실', '샤워', '화장실', '아기', '베란다', '발코니'],
-        '食事・買い物'       => ['朝食', '食事', 'レストラン', '飲食', '居酒屋', 'カフェ', 'ランチ', 'ディナー', '夕食', 'コンビニ', 'スーパー', '買い物', 'ドラッグストア', '薬局', 'ATM',
-                                 'breakfast', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'cafe', 'bar', 'izakaya', 'convenience store', 'supermarket', 'grocer*', 'shopping', 'pharmacy', 'drugstore',
+                                 '床', '房間', '房间', '浴室', '淋浴', '廁所', '厕所', '陽台', '阳台', '設備', '设备', '電梯', '电梯', '臥室', '卧室', '衛浴', '卫浴', '打掃', '打扫', '海景', '溫泉', '温泉', '遙控', '遥控',
+                                 '어메니티', '수건', '샴푸', '드라이어', '칫솔', '세탁', '건조기', '주방', '부엌', '냉장고', '전자레인지', '에어컨', '티비', '침대', '객실', '욕실', '샤워', '화장실', '베란다', '발코니', '엘리베이터', '청소', '오션뷰', '전망', '온천', '리모컨'],
+        '食事・買い物'       => ['朝食', '食事', 'レストラン', '飲食', '居酒屋', 'カフェ', 'ランチ', 'ディナー', '夕食', 'コンビニ', 'スーパー', '買い物', 'ドラッグストア', '薬局', 'ATM', 'ベジタリアン', 'お菓子', '弁当',
+                                 'breakfast', 'restaurant', 'food', 'snack', 'vegetarian', 'vegan', 'halal', 'eat', 'dinner', 'lunch', 'cafe', 'bar', 'izakaya', 'convenience store', 'supermarket', 'grocer*', 'shopping', 'pharmacy', 'drugstore',
                                  '早餐', '餐廳', '餐厅', '吃', '晚餐', '午餐', '咖啡', '便利商店', '便利店', '超市', '購物', '购物', '藥局', '药店',
                                  '조식', '아침', '식당', '레스토랑', '음식', '맛집', '저녁', '점심', '카페', '편의점', '마트', '쇼핑', '약국'],
-        '観光・周辺'         => ['観光', 'ビーチ', '海', '水族館', '美ら海', '首里城', '国際通り', 'おすすめ', '周辺', '近く', '近所', '遊び', '天気', '台風', '雨',
-                                 'sightseeing', 'tourist', 'beach', 'sea', 'aquarium', 'attraction', 'recommend*', 'nearby', 'near', 'around', 'things to do', 'weather', 'typhoon', 'rain',
+        '観光・周辺'         => ['観光', 'ビーチ', '海', '水族館', '美ら海', '首里城', '国際通り', 'おすすめ', '周辺', '近く', '近所', '遊び', '天気', '台風', '雨', '工事', 'お墓', '墓地', '系列',
+                                 'sightseeing', 'tourist', 'beach', 'sea', 'aquarium', 'attraction', 'recommend*', 'nearby', 'near', 'around', 'things to do', 'weather', 'typhoon', 'rain', 'construction',
                                  '觀光', '观光', '海灘', '海滩', '水族館', '水族馆', '景點', '景点', '推薦', '推荐', '附近', '周邊', '周边', '天氣', '天气', '颱風', '台风', '下雨',
                                  '관광', '해변', '바다', '수족관', '명소', '추천', '근처', '주변', '날씨', '태풍', '비가', '우천'],
         'その他'             => [],
     ];
 
     /** 分類ルールの版。上げると既存の会話ログも新ルールで分類し直す（管理画面を開いた時に少しずつ） */
-    const CATEGORY_REV = 2;
+    const CATEGORY_REV = 3;
 
     public function __construct() {
         add_action('admin_menu', [$this, 'add_admin_menu']);
@@ -1629,7 +1638,7 @@ class MYZ_AI_Chatbot {
         );
 
         // グラフ用の色
-        $colors = ['#159BBE', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA', '#A8D8EA', '#FCBAD3', '#C9B79C', '#B5B5B5'];
+        $colors = ['#159BBE', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA', '#A8D8EA', '#FCBAD3', '#C9B79C', '#8FBC8F', '#E0A96D', '#7FA7D9', '#B5B5B5'];
         $max_cat_count = 0;
         foreach ($category_counts as $cat) {
             if ((int)$cat->cnt > $max_cat_count) $max_cat_count = (int)$cat->cnt;
