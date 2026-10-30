@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.26.0
+ * Version: 5.26.1
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.26.0');
+define('MYZ_CHATBOT_VERSION', '5.26.1');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -101,6 +101,7 @@ class MYZ_AI_Chatbot {
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_init', [$this, 'maybe_create_tables']);
         add_action('admin_init', [$this, 'maybe_reclassify_logs'], 20);
+        add_action('admin_init', [$this, 'migrate_retired_claude_model']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_footer', [$this, 'render_widget']);
 
@@ -296,7 +297,7 @@ class MYZ_AI_Chatbot {
     public function register_settings() {
         register_setting('myz_chatbot_settings', 'myz_chatbot_ai_provider', ['default' => 'claude']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_api_key');
-        register_setting('myz_chatbot_settings', 'myz_chatbot_claude_model', ['default' => 'claude-sonnet-4-5-20250929']);
+        register_setting('myz_chatbot_settings', 'myz_chatbot_claude_model', ['default' => 'claude-sonnet-5-5']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_openai_api_key');
         register_setting('myz_chatbot_settings', 'myz_chatbot_openai_model', ['default' => 'gpt-4o-mini']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_gemini_api_key');
@@ -761,13 +762,12 @@ class MYZ_AI_Chatbot {
                         <tr>
                             <th scope="row">モデル</th>
                             <td>
-                                <?php $claude_model = get_option('myz_chatbot_claude_model', 'claude-sonnet-4-5-20250929'); ?>
+                                <?php $claude_model = get_option('myz_chatbot_claude_model', 'claude-sonnet-5-5'); ?>
                                 <select name="myz_chatbot_claude_model">
                                     <option value="claude-sonnet-5-5" <?php selected($claude_model, 'claude-sonnet-5-5'); ?>>Claude Sonnet 5.5（推奨・2026-09最新・バランス型）</option>
                                     <option value="claude-haiku-4-5" <?php selected(in_array($claude_model, ['claude-haiku-4-5', 'claude-haiku-4-5-20250929'], true), true); ?>>Claude Haiku 4.5（最速・低コスト）</option>
                                     <option value="claude-opus-5-5" <?php selected($claude_model, 'claude-opus-5-5'); ?>>Claude Opus 5.5（高性能・応答やや遅め）</option>
                                     <option value="claude-fable-5-1" <?php selected($claude_model, 'claude-fable-5-1'); ?>>Claude Fable 5.1（最高性能・高コスト・応答遅め）</option>
-                                    <option value="claude-sonnet-4-5-20250929" <?php selected($claude_model, 'claude-sonnet-4-5-20250929'); ?>>Claude Sonnet 4.5（旧世代）</option>
                                 </select>
                             </td>
                         </tr>
@@ -1878,6 +1878,15 @@ class MYZ_AI_Chatbot {
             }
         }
         return 'その他';
+    }
+
+    /**
+     * v5.26.1: Claude Sonnet 4.5 は 2026-11-30 で提供終了 → 保存済みの設定を Sonnet 5.5 へ移す
+     */
+    public function migrate_retired_claude_model() {
+        if (get_option('myz_chatbot_claude_model') === 'claude-sonnet-4-5-20250929') {
+            update_option('myz_chatbot_claude_model', 'claude-sonnet-5-5');
+        }
     }
 
     /**

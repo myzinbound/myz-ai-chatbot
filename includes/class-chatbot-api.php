@@ -278,9 +278,9 @@ class MYZ_Chatbot_API {
      * Claude API 呼び出し
      */
     private function call_claude($api_key, $system_prompt, $messages) {
-        $model = get_option('myz_chatbot_claude_model', 'claude-sonnet-4-5-20250929');
+        $model = get_option('myz_chatbot_claude_model', 'claude-sonnet-5-5');
         // v5.23.0: 旧選択肢のモデルIDは実在しない日付だった（選ぶと404）。正しいIDへ読み替える
-        $legacy = ['claude-haiku-4-5-20250929' => 'claude-haiku-4-5', 'claude-opus-4-5-20250929' => 'claude-opus-4-5-20251101'];
+        $legacy = ['claude-haiku-4-5-20250929' => 'claude-haiku-4-5', 'claude-opus-4-5-20250929' => 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929' => 'claude-sonnet-5-5'];  // v5.26.1: Sonnet 4.5は2026-11-30提供終了
         if (isset($legacy[$model])) $model = $legacy[$model];
 
         list($static, $dynamic) = $this->split_prompt($system_prompt);
