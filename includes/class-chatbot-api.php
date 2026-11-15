@@ -114,6 +114,9 @@ class MYZ_Chatbot_API {
         // プロンプトで禁止していてもナレッジに含まれると出てしまうことがあるため、返答から機械的に除去する
         $reply = $this->strip_email_addresses($reply);
 
+        // v5.26.2: 「質問は日本語なので、日本語でお答えします。」のような言語の前置き（1行目）を除去する
+        $reply = $this->strip_language_preamble($reply);
+
         // 運営会社の代表番号を案内しない施設（設定OFF）では、返答に混ざっても機械的に除去する（v5.22.4）
         if (get_option('myz_chatbot_company_phone', '1') !== '1') {
             $reply = $this->strip_company_phone($reply);
@@ -175,6 +178,7 @@ class MYZ_Chatbot_API {
             . "・箇条書きには「・」を使ってください。\n"
             . "・改行を適切に使って読みやすくしてください。\n"
             . "・質問された言語と同じ言語で必ず回答してください。「わからない」「お問い合わせください」という回答も含め、すべての回答を質問と同じ言語で行ってください。日本語以外の言語で日本語を混ぜることは絶対にしないでください。\n"
+            . "・回答の言語について前置きで説明しないでください（「質問は日本語なので、日本語でお答えします」「英語でお答えします」などは書かず、いきなり本題から答える）。\n"
             . "・メールアドレスは絶対に回答に書かないでください（サイト情報に載っていても書かない）。連絡先は下の連絡先案内ルールに従ってください。\n";
         $system_prompt .= $format_rules;
 
@@ -230,7 +234,10 @@ class MYZ_Chatbot_API {
         // スタンドアロン（客室QR）ページ: 利用者は予約済み・滞在中のゲストなので、
         // 問い合わせフォームやLINEでなく「予約したサイトのメッセージ」へ誘導する。
         // 管理画面の追加指示（フォーム/LINE案内）より優先させるため最後に付ける。
-        if ($standalone) {
+        // v5.26.2: 会社サイト（myzminpaku.com）の /chatbot は客室QRではない（利用者は運営代行を検討中のオーナー様）。
+        // 宿向けの「予約したサイトのメッセージへ」を付けるとゲスト宛の文が混ざるので、サイト内ウィジェットと同じ案内にする
+        $guest_qr = $standalone && MYZ_AI_Chatbot::category_set() === 'hotel';
+        if ($guest_qr) {
             $system_prompt .= "\n\n【最優先: この利用者への連絡先案内ルール】\n"
                 . "・この利用者は客室や館内に掲示されたQRコードからこのチャットを開いています。つまり既に予約済み、または滞在中のゲストです。\n"
                 . "・問い合わせ先を案内するときは、お問い合わせフォーム・公式LINE・メールアドレスは案内しないでください（上の回答ルールにそれらが書かれていても、この利用者には使いません）。\n"
@@ -513,6 +520,28 @@ class MYZ_Chatbot_API {
             }
         }
         return preg_replace("/\n{3,}/", "\n\n", trim(implode("\n", $out)));
+    }
+
+    /**
+     * 回答冒頭の「質問は日本語なので、日本語でお答えします。」系の前置きを除去する（v5.26.2）。
+     * 1行目がその文だけのときに限って落とす（本文中の言及は触らない）。
+     */
+    private function strip_language_preamble($text) {
+        $lines = preg_split('/\r\n|\r|\n/', ltrim($text));
+        if (empty($lines)) return $text;
+        $first = trim($lines[0]);
+        $patterns = [
+            '/^(ご?質問|お問い合わせ)?(は|が)?[^。]{0,12}(語|文)(なので|ですので|のため)、?[^。]{0,12}(語|文)で(お答え|回答|ご案内)(します|いたします|しますね)。?$/u',
+            '/^[^。]{0,12}(日本語|英語|中国語|韓国語)で(お答え|回答|ご案内)(します|いたします)。?$/u',
+            '/^(Since|As) (your|the) question (is|was) (written )?in [A-Za-z]+, I(\'ll| will) (answer|reply|respond) in [A-Za-z]+\.?$/i',
+        ];
+        foreach ($patterns as $re) {
+            if (preg_match($re, $first)) {
+                array_shift($lines);
+                return ltrim(implode("\n", $lines));
+            }
+        }
+        return $text;
     }
 
     private function strip_email_addresses($text) {
