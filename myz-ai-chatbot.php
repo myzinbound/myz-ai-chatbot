@@ -2,14 +2,14 @@
 /**
  * Plugin Name: MYZ AI Chatbot
  * Description: マイズインバウンドのAIチャットボット（Claude API連携）
- * Version: 5.26.2
+ * Version: 5.27.0
  * Author: MYZINBOUND INC
  * Text Domain: myz-ai-chatbot
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('MYZ_CHATBOT_VERSION', '5.26.2');
+define('MYZ_CHATBOT_VERSION', '5.27.0');
 define('MYZ_CHATBOT_PATH', plugin_dir_path(__FILE__));
 define('MYZ_CHATBOT_URL', plugin_dir_url(__FILE__));
 define('MYZ_CHATBOT_MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
@@ -19,6 +19,7 @@ require_once MYZ_CHATBOT_PATH . 'includes/class-chatbot-api.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-scraper.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-file-parser.php';
 require_once MYZ_CHATBOT_PATH . 'includes/class-updater.php';
+require_once MYZ_CHATBOT_PATH . 'includes/booked-notice.php';
 
 class MYZ_AI_Chatbot {
 
@@ -314,6 +315,8 @@ class MYZ_AI_Chatbot {
         // v5.22.4: 運営会社の代表番号（098-894-3597・24H）を「お急ぎの連絡先」として案内するか。
         // 弊社が電話対応しない施設（MY松山など）はOFFにする。既定はON（従来どおり）
         register_setting('myz_chatbot_settings', 'myz_chatbot_company_phone', ['default' => '1', 'sanitize_callback' => 'sanitize_text_field']);
+        // v5.27.0: お問い合わせフォームの直前に「ご予約済みのお客様へ（予約サイトのメッセージから）」の案内を出す（宿サイトのみ・既定ON）
+        register_setting('myz_chatbot_settings', 'myz_chatbot_booked_notice', ['default' => '1', 'sanitize_callback' => 'sanitize_text_field']);
         register_setting('myz_chatbot_settings', 'myz_chatbot_urls', [
             'sanitize_callback' => [$this, 'sanitize_urls'],
         ]);
@@ -873,6 +876,16 @@ class MYZ_AI_Chatbot {
                             <p class="description">弊社が電話対応をしない施設（コンサルのみ等）はOFFにしてください。OFFにすると案内しないだけでなく、回答に番号が混ざっても機械的に除去します。</p>
                         </td>
                     </tr>
+                    <?php if (self::category_set() === 'hotel'): ?>
+                    <tr>
+                        <th scope="row">予約済みのお客様への案内</th>
+                        <td>
+                            <label><input type="checkbox" name="myz_chatbot_booked_notice" value="1" <?php checked(get_option('myz_chatbot_booked_notice', '1'), '1'); ?> />
+                                お問い合わせフォームの直前に「ご予約済みのお客様は、ご予約いただいたサイトのメッセージ機能からご連絡ください」の案内を表示する</label>
+                            <p class="description">ページの言語（日本語・英語・繁体字・簡体字・韓国語・独仏西伊）に合わせて表示します。サイト内チャットも、予約済みの方には予約サイトのメッセージを案内します。</p>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
                     <tr>
                         <th scope="row">お問い合わせフォームURL</th>
                         <td>
@@ -883,7 +896,7 @@ class MYZ_AI_Chatbot {
                             <p class="description">
                                 サイト内のチャットで問い合わせ先を案内するとき、メールアドレスの代わりにこのフォームへ誘導します。
                                 空欄なら固定ページから自動検出します<?php if ($detected_contact): ?>（現在の検出結果: <a href="<?php echo esc_url($detected_contact); ?>" target="_blank"><?php echo esc_html($detected_contact); ?></a>）<?php else: ?>（<strong style="color:#c00;">検出できませんでした。URLを入力してください</strong>）<?php endif; ?>。<br>
-                                客室QR（スタンドアロン）ページはこの設定に関係なく「ご予約いただいたサイトのメッセージ」へ誘導します。
+                                宿サイトでは、予約済みの方には予約サイトのメッセージを、ご予約前の方にはこのフォームを案内します（v5.27.0〜）。客室QR（スタンドアロン）ページは予約サイトのメッセージだけを案内します。
                             </p>
                         </td>
                     </tr>
