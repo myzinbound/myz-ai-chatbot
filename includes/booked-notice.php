@@ -12,7 +12,7 @@
  *   Happy Addons の CF7 ウィジェット（ha-cf7）はショートコードを通らないので、Elementor のウィジェット出力フィルターでも差し込む（v5.27.1）。
  *   1ページに複数フォームがあっても最初の1つだけ。
  * ・<head> より前の描画（AIOSEO が説明文を作るために本文のショートコードを展開する等）では差し込まない。
- *   v5.27.0 はそこで「表示済み」になり、CP の本物のフォームに出なかった（v5.27.1 で修正）。
+ *   v5.27.0〜5.27.1 はそこで「表示済み」になり、CP の本物のフォームに出なかった（v5.27.2 で修正）。
  * ・言語はページのURL（/en-contact/ /tw-contact/ /cn-contact/ /ko-contact/ /en/contact/ /zh/contact/ 等）→ ページのロケールの順で判定。
  */
 if (!defined('ABSPATH')) exit;
@@ -28,7 +28,8 @@ class MYZ_Chatbot_Booked_Notice {
 
     /** ページ本体の描画中か（<head> の出力より前は SEO プラグイン等の下書き描画なので除外） */
     private static function in_body() {
-        return did_action('wp_head') > 0 && !is_admin() && !wp_doing_ajax() && !(defined('REST_REQUEST') && REST_REQUEST) && !is_feed();
+        // did_action は wp_head の開始時点で 1 になるので、AIOSEO 等が wp_head の中で本文を展開する場合は doing_action で除く（v5.27.2）
+        return did_action('wp_head') > 0 && !doing_action('wp_head') && !is_admin() && !wp_doing_ajax() && !(defined('REST_REQUEST') && REST_REQUEST) && !is_feed();
     }
 
     /** Elementor ウィジェット（Happy Addons の ha-cf7 など）の出力に CF7 フォームがあれば、その直前に差し込む */
