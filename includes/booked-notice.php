@@ -81,7 +81,7 @@ class MYZ_Chatbot_Booked_Notice {
         $t = [
             'ja' => [
                 'title' => 'ご予約済みのお客様へ',
-                'lead'  => 'ご予約内容の確認・変更・キャンセル、チェックイン方法、ご滞在中のご連絡は、<strong>ご予約いただいたサイト（Booking.com・Agoda・楽天トラベル・じゃらん・Airbnb など）のメッセージ機能</strong>からお送りください。',
+                'lead'  => 'ご予約内容の確認・変更・キャンセル、チェックイン方法、ご滞在中のご連絡は、<strong>ご予約いただいたサイト（Booking.com・Airbnb・Agoda・楽天トラベル・じゃらん など）のメッセージ機能</strong>からお送りください。',
                 'items' => [
                     '予約サイトからのご連絡なら、ご予約内容をすぐに確認でき、より早くお返事できます。',
                     'ご予約が成立しているかは、予約サイトから届く予約確認メール、または予約サイトのマイページでご確認いただけます。宿へ改めてお問い合わせいただく必要はございません。',
@@ -91,7 +91,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'en' => [
                 'title' => 'Already booked with us?',
-                'lead'  => 'For questions about your reservation (checking, changing or cancelling it), check-in instructions, or anything during your stay, please <strong>message us through the website or app where you made your booking (Booking.com, Agoda, Expedia, Trip.com, Airbnb, etc.)</strong>.',
+                'lead'  => 'For questions about your reservation (checking, changing or cancelling it), check-in instructions, or anything during your stay, please <strong>message us through the website or app where you made your booking (Booking.com, Airbnb, Agoda, Expedia, Trip.com, etc.)</strong>.',
                 'items' => [
                     'We can see your booking details there right away, so we can reply faster.',
                     'To check that your booking is confirmed, please see the confirmation email from the booking site or your account page on that site. There is no need to contact us to confirm it.',
@@ -101,7 +101,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'zh-hant' => [
                 'title' => '已預訂的旅客請注意',
-                'lead'  => '關於預訂內容的確認、變更或取消、入住方式，以及住宿期間的聯絡，請<strong>透過您預訂時使用的網站或App（Booking.com、Agoda、Trip.com、Airbnb 等）的訊息功能</strong>與我們聯繫。',
+                'lead'  => '關於預訂內容的確認、變更或取消、入住方式，以及住宿期間的聯絡，請<strong>透過您預訂時使用的網站或App（Booking.com、Airbnb、Agoda、Trip.com 等）的訊息功能</strong>與我們聯繫。',
                 'items' => [
                     '透過訂房網站聯絡，我們能立即確認您的預訂內容，更快回覆您。',
                     '預訂是否成功，請查看訂房網站寄出的預訂確認信，或該網站的會員頁面。無需另外向本館確認。',
@@ -111,7 +111,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'zh-hans' => [
                 'title' => '已预订的客人请注意',
-                'lead'  => '关于预订内容的确认、变更或取消、入住方式，以及入住期间的联系，请<strong>通过您预订时使用的网站或App（Booking.com、Agoda、携程 Trip.com、Airbnb 等）的消息功能</strong>与我们联系。',
+                'lead'  => '关于预订内容的确认、变更或取消、入住方式，以及入住期间的联系，请<strong>通过您预订时使用的网站或App（Booking.com、Airbnb、Agoda、携程 Trip.com 等）的消息功能</strong>与我们联系。',
                 'items' => [
                     '通过订房网站联系，我们能立即确认您的预订内容，更快回复您。',
                     '预订是否成功，请查看订房网站发送的预订确认邮件，或该网站的会员页面。无需另行向本酒店确认。',
@@ -121,7 +121,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'ko' => [
                 'title' => '이미 예약하신 고객님께',
-                'lead'  => '예약 내용 확인·변경·취소, 체크인 방법, 숙박 중 연락은 <strong>예약하신 사이트 또는 앱(Booking.com, Agoda, Trip.com, Airbnb 등)의 메시지 기능</strong>으로 보내 주세요.',
+                'lead'  => '예약 내용 확인·변경·취소, 체크인 방법, 숙박 중 연락은 <strong>예약하신 사이트 또는 앱(Booking.com, Airbnb, Agoda, Trip.com 등)의 메시지 기능</strong>으로 보내 주세요.',
                 'items' => [
                     '예약 사이트로 연락 주시면 예약 내용을 바로 확인할 수 있어 더 빠르게 답변드릴 수 있습니다.',
                     '예약 완료 여부는 예약 사이트에서 발송된 예약 확인 메일 또는 해당 사이트의 마이페이지에서 확인하실 수 있습니다. 숙소에 따로 확인하실 필요는 없습니다.',
@@ -131,7 +131,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'de' => [
                 'title' => 'Sie haben bereits gebucht?',
-                'lead'  => 'Für Fragen zu Ihrer Buchung (Prüfung, Änderung oder Stornierung), zum Check-in oder während Ihres Aufenthalts schreiben Sie uns bitte <strong>über die Nachrichtenfunktion der Website oder App, über die Sie gebucht haben (Booking.com, Agoda, Expedia, Airbnb usw.)</strong>.',
+                'lead'  => 'Für Fragen zu Ihrer Buchung (Prüfung, Änderung oder Stornierung), zum Check-in oder während Ihres Aufenthalts schreiben Sie uns bitte <strong>über die Nachrichtenfunktion der Website oder App, über die Sie gebucht haben (Booking.com, Airbnb, Agoda, Expedia usw.)</strong>.',
                 'items' => [
                     'Dort sehen wir Ihre Buchungsdaten sofort und können schneller antworten.',
                     'Ob Ihre Buchung bestätigt ist, sehen Sie in der Bestätigungs-E-Mail der Buchungsseite oder in Ihrem Konto dort. Eine zusätzliche Bestätigung bei uns ist nicht nötig.',
@@ -141,7 +141,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'fr' => [
                 'title' => 'Vous avez déjà réservé ?',
-                'lead'  => 'Pour toute question sur votre réservation (vérification, modification ou annulation), l’arrivée ou pendant votre séjour, merci de nous écrire <strong>via la messagerie du site ou de l’application où vous avez réservé (Booking.com, Agoda, Expedia, Airbnb, etc.)</strong>.',
+                'lead'  => 'Pour toute question sur votre réservation (vérification, modification ou annulation), l’arrivée ou pendant votre séjour, merci de nous écrire <strong>via la messagerie du site ou de l’application où vous avez réservé (Booking.com, Airbnb, Agoda, Expedia, etc.)</strong>.',
                 'items' => [
                     'Nous y voyons immédiatement votre réservation et pouvons vous répondre plus vite.',
                     'Pour vérifier que votre réservation est confirmée, consultez l’e-mail de confirmation du site de réservation ou votre espace client sur ce site. Inutile de nous contacter pour le confirmer.',
@@ -151,7 +151,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'es' => [
                 'title' => '¿Ya tiene una reserva?',
-                'lead'  => 'Para consultas sobre su reserva (comprobarla, modificarla o cancelarla), el check-in o durante su estancia, escríbanos <strong>a través de la mensajería del sitio web o la app donde reservó (Booking.com, Agoda, Expedia, Airbnb, etc.)</strong>.',
+                'lead'  => 'Para consultas sobre su reserva (comprobarla, modificarla o cancelarla), el check-in o durante su estancia, escríbanos <strong>a través de la mensajería del sitio web o la app donde reservó (Booking.com, Airbnb, Agoda, Expedia, etc.)</strong>.',
                 'items' => [
                     'Allí vemos los datos de su reserva al instante y podemos responder más rápido.',
                     'Para comprobar que su reserva está confirmada, revise el correo de confirmación del sitio de reservas o su cuenta en ese sitio. No es necesario contactarnos para confirmarla.',
@@ -161,7 +161,7 @@ class MYZ_Chatbot_Booked_Notice {
             ],
             'it' => [
                 'title' => 'Ha già prenotato?',
-                'lead'  => 'Per domande sulla prenotazione (verifica, modifica o cancellazione), sul check-in o durante il soggiorno, ci scriva <strong>tramite la messaggistica del sito o dell’app con cui ha prenotato (Booking.com, Agoda, Expedia, Airbnb, ecc.)</strong>.',
+                'lead'  => 'Per domande sulla prenotazione (verifica, modifica o cancellazione), sul check-in o durante il soggiorno, ci scriva <strong>tramite la messaggistica del sito o dell’app con cui ha prenotato (Booking.com, Airbnb, Agoda, Expedia, ecc.)</strong>.',
                 'items' => [
                     'Lì vediamo subito i dati della prenotazione e possiamo rispondere più rapidamente.',
                     'Per verificare che la prenotazione sia confermata, controlli l’e-mail di conferma del sito di prenotazione o il suo account su quel sito. Non è necessario contattarci per confermarla.',
