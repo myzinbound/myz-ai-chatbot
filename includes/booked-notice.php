@@ -1,6 +1,6 @@
 <?php
 /**
- * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0〜
+ * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0〜（v5.27.3 で「当サイトから直接ご予約の方は」の記載を削除・ユーザー指示）
  *
  * 公式サイトのお問い合わせフォームに、予約サイト（Booking.com・Agoda 等）で予約済みのゲストから
  * 「予約できているか確認したい」「チェックイン方法は？」といった連絡が増えた（2026-10〜）。
@@ -85,7 +85,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     '予約サイトからのご連絡なら、ご予約内容をすぐに確認でき、より早くお返事できます。',
                     'ご予約が成立しているかは、予約サイトから届く予約確認メール、または予約サイトのマイページでご確認いただけます。宿へ改めてお問い合わせいただく必要はございません。',
-                    '当サイトから直接ご予約のお客様、または予約サイトから連絡できない場合は、予約番号を添えて下のフォームからご連絡ください。',
+                    '予約サイトから連絡できない場合は、予約番号を添えて下のフォームからご連絡ください。',
                 ],
                 'foot'  => 'ご予約前のご質問は、下のフォームからお気軽にどうぞ。',
             ],
@@ -95,7 +95,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     'We can see your booking details there right away, so we can reply faster.',
                     'To check that your booking is confirmed, please see the confirmation email from the booking site or your account page on that site. There is no need to contact us to confirm it.',
-                    'If you booked directly on this website, or cannot message us through the booking site, please use the form below and include your booking number.',
+                    'If you cannot message us through the booking site, please use the form below and include your booking number.',
                 ],
                 'foot'  => 'Questions before booking are welcome via the form below.',
             ],
@@ -105,7 +105,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     '透過訂房網站聯絡，我們能立即確認您的預訂內容，更快回覆您。',
                     '預訂是否成功，請查看訂房網站寄出的預訂確認信，或該網站的會員頁面。無需另外向本館確認。',
-                    '若您是在本官方網站直接預訂，或無法透過訂房網站聯絡，請於下方表單填寫預訂編號後與我們聯繫。',
+                    '若無法透過訂房網站聯絡，請於下方表單填寫預訂編號後與我們聯繫。',
                 ],
                 'foot'  => '預訂前的疑問，歡迎使用下方表單詢問。',
             ],
@@ -115,7 +115,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     '通过订房网站联系，我们能立即确认您的预订内容，更快回复您。',
                     '预订是否成功，请查看订房网站发送的预订确认邮件，或该网站的会员页面。无需另行向本酒店确认。',
-                    '如果您是在本官网直接预订，或无法通过订房网站联系，请在下方表单中填写预订编号后与我们联系。',
+                    '如果无法通过订房网站联系，请在下方表单中填写预订编号后与我们联系。',
                 ],
                 'foot'  => '预订前的疑问，欢迎通过下方表单咨询。',
             ],
@@ -125,7 +125,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     '예약 사이트로 연락 주시면 예약 내용을 바로 확인할 수 있어 더 빠르게 답변드릴 수 있습니다.',
                     '예약 완료 여부는 예약 사이트에서 발송된 예약 확인 메일 또는 해당 사이트의 마이페이지에서 확인하실 수 있습니다. 숙소에 따로 확인하실 필요는 없습니다.',
-                    '본 공식 사이트에서 직접 예약하셨거나 예약 사이트로 연락이 어려운 경우에는, 예약 번호를 적어 아래 양식으로 문의해 주세요.',
+                    '예약 사이트로 연락이 어려운 경우에는, 예약 번호를 적어 아래 양식으로 문의해 주세요.',
                 ],
                 'foot'  => '예약 전 문의는 아래 양식으로 편하게 보내 주세요.',
             ],
@@ -135,7 +135,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     'Dort sehen wir Ihre Buchungsdaten sofort und können schneller antworten.',
                     'Ob Ihre Buchung bestätigt ist, sehen Sie in der Bestätigungs-E-Mail der Buchungsseite oder in Ihrem Konto dort. Eine zusätzliche Bestätigung bei uns ist nicht nötig.',
-                    'Wenn Sie direkt über diese Website gebucht haben oder uns über die Buchungsseite nicht erreichen, nutzen Sie bitte das Formular unten und geben Sie Ihre Buchungsnummer an.',
+                    'Wenn Sie uns über die Buchungsseite nicht erreichen, nutzen Sie bitte das Formular unten und geben Sie Ihre Buchungsnummer an.',
                 ],
                 'foot'  => 'Fragen vor der Buchung beantworten wir gern über das Formular unten.',
             ],
@@ -145,7 +145,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     'Nous y voyons immédiatement votre réservation et pouvons vous répondre plus vite.',
                     'Pour vérifier que votre réservation est confirmée, consultez l’e-mail de confirmation du site de réservation ou votre espace client sur ce site. Inutile de nous contacter pour le confirmer.',
-                    'Si vous avez réservé directement sur ce site, ou si vous ne pouvez pas nous écrire via le site de réservation, utilisez le formulaire ci-dessous en indiquant votre numéro de réservation.',
+                    'Si vous ne pouvez pas nous écrire via le site de réservation, utilisez le formulaire ci-dessous en indiquant votre numéro de réservation.',
                 ],
                 'foot'  => 'Pour les questions avant réservation, le formulaire ci-dessous est à votre disposition.',
             ],
@@ -155,7 +155,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     'Allí vemos los datos de su reserva al instante y podemos responder más rápido.',
                     'Para comprobar que su reserva está confirmada, revise el correo de confirmación del sitio de reservas o su cuenta en ese sitio. No es necesario contactarnos para confirmarla.',
-                    'Si reservó directamente en esta web, o no puede escribirnos desde el sitio de reservas, use el formulario de abajo e indique su número de reserva.',
+                    'Si no puede escribirnos desde el sitio de reservas, use el formulario de abajo e indique su número de reserva.',
                 ],
                 'foot'  => 'Las preguntas antes de reservar son bienvenidas a través del formulario de abajo.',
             ],
@@ -165,7 +165,7 @@ class MYZ_Chatbot_Booked_Notice {
                 'items' => [
                     'Lì vediamo subito i dati della prenotazione e possiamo rispondere più rapidamente.',
                     'Per verificare che la prenotazione sia confermata, controlli l’e-mail di conferma del sito di prenotazione o il suo account su quel sito. Non è necessario contattarci per confermarla.',
-                    'Se ha prenotato direttamente su questo sito, o non riesce a scriverci tramite il sito di prenotazione, usi il modulo qui sotto indicando il numero di prenotazione.',
+                    'Se non riesce a scriverci tramite il sito di prenotazione, usi il modulo qui sotto indicando il numero di prenotazione.',
                 ],
                 'foot'  => 'Per domande prima della prenotazione, usi pure il modulo qui sotto.',
             ],
