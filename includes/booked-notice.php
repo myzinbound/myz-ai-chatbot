@@ -1,6 +1,6 @@
 <?php
 /**
- * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0
+ * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0〜
  *
  * 公式サイトのお問い合わせフォームに、予約サイト（Booking.com・Agoda 等）で予約済みのゲストから
  * 「予約できているか確認したい」「チェックイン方法は？」といった連絡が増えた（2026-10〜）。
@@ -8,8 +8,11 @@
  *
  * ・宿サイト（MYZ_AI_Chatbot::category_set() === 'hotel'）だけ。会社サイト（myzminpaku.com）には出さない。
  * ・設定「予約済みのお客様への案内」（myz_chatbot_booked_notice・既定ON）でOFFにできる。
- * ・Contact Form 7 のショートコード（Elementor のショートコード／CF7 ウィジェット経由も同じ）の出力の直前に差し込む。
+ * ・Contact Form 7 のショートコード出力の直前に差し込む（Elementor のショートコードウィジェット・本文）。
+ *   Happy Addons の CF7 ウィジェット（ha-cf7）はショートコードを通らないので、Elementor のウィジェット出力フィルターでも差し込む（v5.27.1）。
  *   1ページに複数フォームがあっても最初の1つだけ。
+ * ・<head> より前の描画（AIOSEO が説明文を作るために本文のショートコードを展開する等）では差し込まない。
+ *   v5.27.0 はそこで「表示済み」になり、CP の本物のフォームに出なかった（v5.27.1 で修正）。
  * ・言語はページのURL（/en-contact/ /tw-contact/ /cn-contact/ /ko-contact/ /en/contact/ /zh/contact/ 等）→ ページのロケールの順で判定。
  */
 if (!defined('ABSPATH')) exit;
@@ -20,6 +23,21 @@ class MYZ_Chatbot_Booked_Notice {
 
     public static function init() {
         add_filter('do_shortcode_tag', [__CLASS__, 'before_form'], 10, 2);
+        add_filter('elementor/widget/render_content', [__CLASS__, 'before_widget_form'], 10, 2);
+    }
+
+    /** ページ本体の描画中か（<head> の出力より前は SEO プラグイン等の下書き描画なので除外） */
+    private static function in_body() {
+        return did_action('wp_head') > 0 && !is_admin() && !wp_doing_ajax() && !(defined('REST_REQUEST') && REST_REQUEST) && !is_feed();
+    }
+
+    /** Elementor ウィジェット（Happy Addons の ha-cf7 など）の出力に CF7 フォームがあれば、その直前に差し込む */
+    public static function before_widget_form($content, $widget) {
+        if (self::$shown || !is_string($content) || strpos($content, 'wpcf7') === false || !self::in_body()) return $content;
+        if (!self::enabled()) return $content;
+        self::$shown = true;
+        $lang = self::lang();
+        return apply_filters('myz_chatbot_booked_notice_html', self::html($lang), $lang) . $content;
     }
 
     public static function enabled() {
@@ -29,7 +47,7 @@ class MYZ_Chatbot_Booked_Notice {
 
     public static function before_form($output, $tag) {
         if ($tag !== 'contact-form-7' && $tag !== 'contact-form') return $output;
-        if (self::$shown || is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST)) return $output;
+        if (self::$shown || !self::in_body()) return $output;
         if (!self::enabled()) return $output;
         self::$shown = true;
         $lang = self::lang();
