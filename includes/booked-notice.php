@@ -1,6 +1,6 @@
 <?php
 /**
- * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0〜（v5.27.3 で「当サイトから直接ご予約の方は」の記載を削除・ユーザー指示）
+ * 予約済みのお客様への案内（お問い合わせフォームの直前に表示）— v5.27.0〜（v5.27.3 で「当サイトから直接ご予約の方は」の記載を削除・ユーザー指示／v5.27.5 で CSS だけのウィジェットに出ないよう修正）
  *
  * 公式サイトのお問い合わせフォームに、予約サイト（Booking.com・Agoda 等）で予約済みのゲストから
  * 「予約できているか確認したい」「チェックイン方法は？」といった連絡が増えた（2026-10〜）。
@@ -34,7 +34,10 @@ class MYZ_Chatbot_Booked_Notice {
 
     /** Elementor ウィジェット（Happy Addons の ha-cf7 など）の出力に CF7 フォームがあれば、その直前に差し込む */
     public static function before_widget_form($content, $widget) {
+        // 本物のフォーム（<form class="wpcf7-form …">）がある時だけ。CSS だけの HTML ウィジェット（.wpcf7 の装飾指定）に反応して
+        // ヒーロー・フッターに案内が出ていた（EZ・v5.27.5 で修正）
         if (self::$shown || !is_string($content) || strpos($content, 'wpcf7') === false || !self::in_body()) return $content;
+        if (!preg_match('/<form\b[^>]*\bclass=["\'][^"\']*\bwpcf7-form\b/i', $content)) return $content;
         if (!self::enabled()) return $content;
         self::$shown = true;
         $lang = self::lang();
